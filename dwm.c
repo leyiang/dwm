@@ -2005,9 +2005,13 @@ updatesizehints(Client *c)
 void
 updatestatus(void)
 {
+/**
+Comment all steps in updatestatus to hide the version string on top right
+
 	if (!gettextprop(root, XA_WM_NAME, stext, sizeof(stext)))
 		strcpy(stext, "dwm-"VERSION);
 	drawbar(selmon);
+**/
 }
 
 void
