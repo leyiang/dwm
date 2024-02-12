@@ -11,7 +11,7 @@ static const int systraypinningfailfirst = 1;   /* 1: if pinning fails, display 
 static const int showsystray        = 1;        /* 0 means no systray */
 static const int showbar            = 1;        /* 0 means no bar */
 static const int topbar             = 1;        /* 0 means bottom bar */
-static const char *fonts[]          = { "Noto Sans CJK JP:size=10" };
+static const char *fonts[]          = { "monospace:size=12", "Noto Sans CJK JP:size=12" };
 static const char dmenufont[]       = "monospace:size=10";
 static const char col_gray1[]       = "#222222";
 static const char col_gray2[]       = "#444444";
@@ -26,10 +26,23 @@ static const char col_in_background[]  = "#ebdbb2";
 static const char col_no_border[]        = "#fffae8";
 static const char col_lightborder[]        = "#007cff";
 
+static const char col_tag_sel_fore[]        = "#000000";
+static const char col_tag_sel_back[]        = "#ebdbb2";
+
+static const char col_tag_nor_fore[]        = "#cecece";
+static const char col_tag_nor_back[]        = "#404040";
+
+static const char col_title_back[]        = "#c2b594";
+
 static const char *colors[][3]      = {
 	/*               fg         bg         border   */
-	[SchemeNorm] = { col_foreground, col_in_background, col_no_border },
+	[SchemeNorm] = { col_foreground, col_in_background, "#999999" },
 	[SchemeSel]  = { col_foreground, col_background,  col_lightborder },
+	[SchemeStatus]  = { col_gray3, col_gray1,  "#000000"  }, // Statusbar right {text,background,not used but cannot be empty}
+	[SchemeTagsSel]  = { col_tag_sel_fore, col_tag_sel_back,  "#000000"  }, // Tagbar left selected {text,background,not used but cannot be empty}
+	[SchemeTagsNorm]  = { col_tag_nor_fore, col_tag_nor_back,  "#000000"  }, // Tagbar left unselected {text,background,not used but cannot be empty}
+	[SchemeInfoSel]  = { col_tag_sel_fore, col_title_back,  "#000000"  }, // infobar middle  selected {text,background,not used but cannot be empty}
+	[SchemeInfoNorm]  = { col_gray3, "#c2b594", "#000000"  }, // infobar middle  unselected {text,background,not used but cannot be empty}
 };
 
 /* tagging */
@@ -132,4 +145,3 @@ static const Button buttons[] = {
 	{ ClkTagBar,            MODKEY,         Button1,        tag,            {0} },
 	{ ClkTagBar,            MODKEY,         Button3,        toggletag,      {0} },
 };
-
