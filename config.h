@@ -1,3 +1,6 @@
+#include <X11/XF86keysym.h>
+#define XF86XK_AudioMicMute 0x1008FFB2   
+
 /* See LICENSE file for copyright and license details. */
 
 /* appearance */
@@ -97,6 +100,17 @@ static const Key keys[] = {
 	{ MODKEY,                       XK_k,      focusstack,     {.i = -1 } },
 	{ MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },
 	{ MODKEY,                       XK_d,      incnmaster,     {.i = -1 } },
+
+
+    /* Volume Keys */
+	{ 0,  XF86XK_AudioMute, spawn,  SHCMD("pactl set-sink-mute @DEFAULT_SINK@ toggle") },
+	{ 0,  XF86XK_AudioRaiseVolume, spawn,  SHCMD("pactl set-sink-volume @DEFAULT_SINK@ +10%") },
+	{ 0,  XF86XK_AudioLowerVolume, spawn,  SHCMD("pactl set-sink-volume @DEFAULT_SINK@ -10%") },
+	{ 0,  XF86XK_AudioMicMute, spawn,  SHCMD("pactl set-source-mute @DEFAULT_SOURCE@ toggle") },
+
+	{ 0,  XF86XK_MonBrightnessUp, spawn,  SHCMD("brightnessctl set +5%") },
+	{ 0,  XF86XK_MonBrightnessDown, spawn,  SHCMD("brightnessctl set 5%-") },
+
 	// { MODKEY,                       XK_h,      setmfact,       {.f = -0.05} },
 	// { MODKEY,                       XK_l,      setmfact,       {.f = +0.05} },
 	{ MODKEY,                       XK_m, zoom,           {0} },
