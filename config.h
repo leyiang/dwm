@@ -116,9 +116,9 @@ static const Key keys[] = {
 	{ MODKEY,                       XK_m, zoom,           {0} },
 	{ MODKEY,                       XK_Tab,    view,           {0} },
 	{ MODKEY,                       XK_q,      killclient,     {0} },
-	// { MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
+	{ MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
 	// { MODKEY|ShiftMask,             XK_f,      setlayout,      {.v = &layouts[1]} },
-	// { MODKEY,                       XK_m,      setlayout,      {.v = &layouts[2]} },
+	{ MODKEY,                       XK_p,      setlayout,      {.v = &layouts[2]} },
 	// { MODKEY,                       XK_space,  setlayout,      {0} },
 	{ MODKEY|ShiftMask,             XK_e,      spawn,          SHCMD("exit_dwm") },
 	{ MODKEY,                       XK_f,      togglefullscr,  {0} },
@@ -143,6 +143,14 @@ static const Key keys[] = {
 
 /* button definitions */
 /* click can be ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle, ClkClientWin, or ClkRootWin */
+/**
+ * Button1 = Left Click
+ * Button2 = Middle Click
+ * Button3 = Right Click
+ * Button4 = Scroll up
+ * Button5 = Scroll down
+ */
+
 static const Button buttons[] = {
 	/* click                event mask      button          function        argument */
 	// { ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
