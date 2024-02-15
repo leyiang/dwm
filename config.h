@@ -43,6 +43,7 @@ static const char *colors[][3]      = {
 	[SchemeStatus]  = { col_gray3, col_gray1,  "#000000"  }, // Statusbar right {text,background,not used but cannot be empty}
 	[SchemeTagsSel]  = { col_tag_sel_fore, col_tag_sel_back,  "#000000"  }, // Tagbar left selected {text,background,not used but cannot be empty}
 	[SchemeTagsNorm]  = { col_tag_nor_fore, col_tag_nor_back,  "#000000"  }, // Tagbar left unselected {text,background,not used but cannot be empty}
+	[SchemeTagsUrgent]  = { "#FFFFFF", "#ff6f00",  "#000000"  }, // Tagbar left unselected {text,background,not used but cannot be empty}
                                                                              //
     [SchemeInfoSel]  = { col_tag_sel_fore, col_title_back,  "#000000"  }, // infobar middle  selected {text,background,not used but cannot be empty}
     [SchemeInfoNorm]  = { col_gray3, col_title_back, "#000000"  }, // infobar middle  unselected {text,background,not used but cannot be empty}
