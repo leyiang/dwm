@@ -14,8 +14,8 @@ static const int systraypinningfailfirst = 1;   /* 1: if pinning fails, display 
 static const int showsystray        = 1;        /* 0 means no systray */
 static const int showbar            = 1;        /* 0 means no bar */
 static const int topbar             = 1;        /* 0 means bottom bar */
-static const char *fonts[]          = { "monospace:size=12", "Noto Sans CJK JP:size=10", "FiraCode Nerd Font:size:20" };
-static const char dmenufont[]       = "monospace:size=12";
+static const char *fonts[]          = { "monospace:size=12", "yiang_nerd_font:size:14", "Noto Sans CJK JP:size=10", "FiraCode Nerd Font:size:20" };
+static const char dmenufont[]       = "monospace:size=14";
 static const char col_gray1[]       = "#222222";
 static const char col_gray2[]       = "#444444";
 static const char col_gray3[]       = "#bbbbbb";
@@ -81,7 +81,7 @@ static const Layout layouts[] = {
 #define TAGKEYS(KEY,TAG) \
 	{ MODKEY,                       KEY,      view,           {.ui = 1 << TAG} }, \
 	{ MODKEY|ControlMask,           KEY,      toggleview,     {.ui = 1 << TAG} }, \
-	{ MODKEY|ShiftMask,             KEY,      tag,            {.ui = 1 << TAG} }, \
+	{ MODKEY|Mod1Mask,             KEY,      tag,            {.ui = 1 << TAG} }, \
 	{ MODKEY|ControlMask|ShiftMask, KEY,      toggletag,      {.ui = 1 << TAG} },
 
 /* helper for spawning shell commands in the pre dwm-5.0 fashion */
@@ -96,21 +96,24 @@ static const Key keys[] = {
 	/* modifier                     key        function        argument */
 	{ MODKEY,                       XK_e,      spawn,          {.v = dmenucmd } },
 	{ MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
-	{ MODKEY,                       XK_b,      togglebar,      {0} },
+	// { MODKEY,                       XK_b,      togglebar,      {0} },
 	{ MODKEY,                       XK_j,      focusstack,     {.i = +1 } },
 	{ MODKEY,                       XK_k,      focusstack,     {.i = -1 } },
-	{ MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },
-	{ MODKEY,                       XK_d,      incnmaster,     {.i = -1 } },
+	// { MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },
+	// { MODKEY,                       XK_d,      incnmaster,     {.i = -1 } },
 
 
     /* Volume Keys */
-	{ 0,  XF86XK_AudioMute, spawn,  SHCMD("pactl set-sink-mute @DEFAULT_SINK@ toggle") },
-	{ 0,  XF86XK_AudioRaiseVolume, spawn,  SHCMD("pactl set-sink-volume @DEFAULT_SINK@ +10%") },
-	{ 0,  XF86XK_AudioLowerVolume, spawn,  SHCMD("pactl set-sink-volume @DEFAULT_SINK@ -10%") },
-	{ 0,  XF86XK_AudioMicMute, spawn,  SHCMD("pactl set-source-mute @DEFAULT_SOURCE@ toggle") },
+    /* vol - script file - ~/scripts/vol */
+	{ 0,  XF86XK_AudioMute,             spawn,  SHCMD("vol toggleMute") },
+	{ 0,  XF86XK_AudioRaiseVolume,      spawn,  SHCMD("vol up") },
+	{ 0,  XF86XK_AudioLowerVolume,      spawn,  SHCMD("vol down") },
+	{ 0,  XF86XK_AudioMicMute,          spawn,  SHCMD("vol toggleMuteMic") },
+	{ ShiftMask,  XF86XK_AudioMute,     spawn,  SHCMD("vol default") },
 
-	{ 0,  XF86XK_MonBrightnessUp, spawn,  SHCMD("brightnessctl set +5%") },
-	{ 0,  XF86XK_MonBrightnessDown, spawn,  SHCMD("brightnessctl set 5%-") },
+    /* bri - script file - ~/scripts/bri */
+	{ 0,  XF86XK_MonBrightnessUp,   spawn,  SHCMD("bri up") },
+	{ 0,  XF86XK_MonBrightnessDown, spawn,  SHCMD("bri down") },
 
 	// { MODKEY,                       XK_h,      setmfact,       {.f = -0.05} },
 	// { MODKEY,                       XK_l,      setmfact,       {.f = +0.05} },
@@ -123,9 +126,9 @@ static const Key keys[] = {
 	// { MODKEY,                       XK_space,  setlayout,      {0} },
 	{ MODKEY|ShiftMask,             XK_e,      spawn,          SHCMD("exit_dwm") },
 	{ MODKEY,                       XK_f,      togglefullscr,  {0} },
-	{ MODKEY|ShiftMask,             XK_space,  togglefloating, {0} },
+	// { MODKEY|ShiftMask,             XK_space,  togglefloating, {0} },
 	{ MODKEY,                       XK_0,      view,           {.ui = ~0 } },
-	{ MODKEY|ShiftMask,             XK_0,      tag,            {.ui = ~0 } },
+	// { MODKEY|ShiftMask,             XK_0,      tag,            {.ui = ~0 } },
 	{ MODKEY,                       XK_comma,  focusmon,       {.i = -1 } },
 	{ MODKEY,                       XK_period, focusmon,       {.i = +1 } },
 	{ MODKEY|ShiftMask,             XK_comma,  tagmon,         {.i = -1 } },
