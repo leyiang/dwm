@@ -1,11 +1,13 @@
 #include <X11/XF86keysym.h>
-#define XF86XK_AudioMicMute 0x1008FFB2   
+
+#define XF86XK_AudioMicMute 0x1008FFB2
+#define XF86XK_PrintScreenDWM 0x0000ff61
 
 /* See LICENSE file for copyright and license details. */
 
 /* appearance */
-static const unsigned int borderpx  = 4;    /* border pixel of windows */
-static const unsigned int gappx     = 0;        /* gap pixel between windows */
+static const unsigned int borderpx  = 8;    /* border pixel of windows */
+static const unsigned int gappx     = 12;        /* gap pixel between windows */
 static const unsigned int snap      = 32;       /* snap pixel */
 static const unsigned int systraypinning = 0;   /* 0: sloppy systray follows selected monitor, >0: pin systray to monitor X */
 static const unsigned int systrayonleft = 0;    /* 0: systray in the right corner, >0: systray on left of status text */
@@ -95,6 +97,8 @@ static const char *termcmd[]  = { "alacritty", NULL };
 static const Key keys[] = {
 	/* modifier                     key        function        argument */
 	{ MODKEY,                       XK_e,      spawn,          {.v = dmenucmd } },
+    { MODKEY|Mod1Mask,              XK_e,      spawn,          SHCMD("dmenu_o") },
+
 	{ MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
 	// { MODKEY,                       XK_b,      togglebar,      {0} },
 	{ MODKEY,                       XK_j,      focusstack,     {.i = +1 } },
@@ -111,7 +115,16 @@ static const Key keys[] = {
 	{ 0,  XF86XK_AudioMicMute,          spawn,  SHCMD("vol toggleMuteMic") },
 	{ ShiftMask,  XF86XK_AudioMute,     spawn,  SHCMD("vol default") },
 
+	{ ShiftMask,  XF86XK_AudioMute,     spawn,  SHCMD("vol default") },
+
+	{ 0,  XK_Pause,                     spawn,  SHCMD("vol pause") },
+	{ 0,  XF86XK_PrintScreenDWM,        spawn,  SHCMD("capt") },
+
     /* bri - script file - ~/scripts/bri */
+    /* normal keyboard don't have bri key, use shift+audio to simulate */
+	{ ShiftMask,  XF86XK_AudioRaiseVolume,      spawn,  SHCMD("bri up") },
+	{ ShiftMask,  XF86XK_AudioLowerVolume,      spawn,  SHCMD("bri down") },
+
 	{ 0,  XF86XK_MonBrightnessUp,   spawn,  SHCMD("bri up") },
 	{ 0,  XF86XK_MonBrightnessDown, spawn,  SHCMD("bri down") },
 
@@ -120,9 +133,9 @@ static const Key keys[] = {
 	{ MODKEY,                       XK_m, zoom,           {0} },
 	{ MODKEY,                       XK_Tab,    view,           {0} },
 	{ MODKEY,                       XK_q,      killclient,     {0} },
-	{ MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
+	// { MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
 	// { MODKEY|ShiftMask,             XK_f,      setlayout,      {.v = &layouts[1]} },
-	{ MODKEY,                       XK_p,      setlayout,      {.v = &layouts[2]} },
+	// { MODKEY,                       XK_p,      setlayout,      {.v = &layouts[2]} },
 	// { MODKEY,                       XK_space,  setlayout,      {0} },
 	{ MODKEY|ShiftMask,             XK_e,      spawn,          SHCMD("exit_dwm") },
 	{ MODKEY,                       XK_f,      togglefullscr,  {0} },
