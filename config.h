@@ -17,7 +17,7 @@ static const int showsystray             = 1;    /* 0 means no systray */
 static const int showbar                 = 1;    /* 0 means no bar */
 static const int topbar                  = 1;    /* 0 means bottom bar */
 static const char *fonts[]               = { "monospace:size = 12", "yiang_nerd_font:size:14", "Noto Sans CJK JP:size = 10", "FiraCode Nerd Font:size:20" };
-static const char dmenufont[]            = "monospace:size = 14";
+static const char dmenufont[]            = "FiraCode-16";
 static const char col_gray1[]            = "#222222";
 static const char col_gray2[]            = "#444444";
 static const char col_gray3[]            = "#bbbbbb";
@@ -86,8 +86,8 @@ static const char *termcmd[]  = { "alacritty", NULL };
 
 static const Key keys[] = {
     /* modifier                     key        function        argument */
-    { MODKEY,                       XK_e,      spawn,          {.v = dmenucmd } },
-    { MODKEY|Mod1Mask,              XK_e,      spawn,          SHCMD("dmenu_o") },
+    { MODKEY,                       XK_e,      spawn,          SHCMD("dmenu_o --run") },
+    { MODKEY|Mod1Mask,              XK_e,      spawn,          SHCMD("dmenu_o --o") },
     { MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
     { MODKEY,                       XK_j,      focusstack,     {.i = +1 } },
     { MODKEY,                       XK_k,      focusstack,     {.i = -1 } },
@@ -137,7 +137,8 @@ static const Key keys[] = {
     { MODKEY,                       XK_period, focusmon,       {.i = +1 } },
     { MODKEY|ShiftMask,             XK_comma,  tagmon,         {.i = -1 } },
     { MODKEY|ShiftMask,             XK_period, tagmon,         {.i = +1 } },
-    { MODKEY|ShiftMask,             XK_q,      quit,           {0} },
+
+    // { MODKEY|ShiftMask,             XK_q,      quit,           {0} },
 
     TAGKEYS(XK_1, 0)
     TAGKEYS(XK_2, 1)
