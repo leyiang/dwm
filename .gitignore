@@ -1,6 +1,7 @@
 *.o
 dwm
 *.orig
+*.rej
 *.1
 dwm.1
 ranger/plugins/
