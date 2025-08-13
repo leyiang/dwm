@@ -196,6 +196,7 @@ static int applysizehints(Client *c, int *x, int *y, int *w, int *h, int interac
 static void arrange(Monitor *m);
 static void arrangemon(Monitor *m);
 static void attach(Client *c);
+static void attachhead(Client *c);
 static void attachstack(Client *c);
 static void buttonpress(XEvent *e);
 static void checkotherwm(void);
@@ -494,8 +495,42 @@ arrangemon(Monitor *m)
 		m->lt[m->sellt]->arrange(m);
 }
 
+/* 
+ * 将客户端窗口添加到监视器的客户端链表中
+ * 根据 insert_win_at_end 配置决定插入位置:
+ * - insert_win_at_end = 1: 插入到链表末尾 (新窗口出现在最后)
+ * - insert_win_at_end = 0: 插入到链表开头 (新窗口出现在最前/主区域)
+ * 
+ * 主要用于: 新窗口创建时的初始位置设置
+ */
 void
 attach(Client *c)
+{
+	if (insert_win_at_end) {
+		Client **tc;
+		for (tc = &c->mon->clients; *tc; tc = &(*tc)->next);
+		*tc = c;
+		c->next = NULL;
+	} else {
+		c->next = c->mon->clients;
+		c->mon->clients = c;
+	}
+}
+
+/*
+ * 强制将客户端窗口插入到链表开头 (主区域)
+ * 
+ * 设计目的: 
+ * - 专门用于 zoom 功能, 确保窗口能正确移动到主区域
+ * - 不受 insert_win_at_end 配置影响, 始终插入开头
+ * - 保持 dwm 传统的 zoom 行为: 将选中窗口提升为主窗口
+ * 
+ * 开发者注意:
+ * - 如果需要强制插入开头的功能, 使用此函数而不是 attach()
+ * - 主要用于窗口管理操作 (如 zoom, pop), 而非新窗口创建
+ */
+void
+attachhead(Client *c)
 {
 	c->next = c->mon->clients;
 	c->mon->clients = c;
@@ -1677,11 +1712,25 @@ nexttiled(Client *c)
 	return c;
 }
 
+/*
+ * 将指定窗口"弹出"到主区域 (用于 zoom 功能)
+ * 
+ * 流程:
+ * 1. detach(c) - 从当前位置移除窗口
+ * 2. attachhead(c) - 插入到链表开头 (主区域) - 关键: 使用 attachhead 而非 attach
+ * 3. focus(c) - 聚焦该窗口  
+ * 4. arrange() - 重新排列布局
+ * 
+ * 为什么使用 attachhead():
+ * - zoom 功能需要将窗口移动到主区域, 必须插入链表开头
+ * - 如果使用 attach(), 在 insert_win_at_end=1 时窗口会错误地移到末尾
+ * - attachhead() 保证 zoom 行为的一致性, 不受用户配置影响
+ */
 void
 pop(Client *c)
 {
 	detach(c);
-	attach(c);
+	attachhead(c);  /* 使用 attachhead 确保窗口移到主区域 */
 	focus(c);
 	arrange(c->mon);
 }

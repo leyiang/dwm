@@ -74,6 +74,7 @@ static const float mfact        = 0.55; /* factor of master area size [0.05..0.9
 static const int   nmaster        = 1;    /* number of clients in master area */
 static const int   resizehints    = 1;    /* 1 means respect size hints in tiled resizals */
 static const int   lockfullscreen = 1; /* 1 will force focus on the fullscreen window */
+static const int   insert_win_at_end = 1; /* 新窗口插入位置: 1=末尾, 0=开头 (注意: zoom功能始终插入开头以保证主区域行为) */
 
 static const Layout layouts[] = {
     /* symbol     arrange function */
