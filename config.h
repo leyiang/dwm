@@ -132,16 +132,23 @@ static const Key keys[] = {
     { MODKEY           , XK_Tab                   , view          , {0} },
     { MODKEY           , XK_q                     , killclient    , {0} },
     { MODKEY|ShiftMask , XK_e                     , spawn         , SHCMD("exit_dwm") },
-    { MODKEY           , XK_f                     , togglefullscr , {0} },
     { MODKEY           , XK_0                     , view          , {.ui = ~0 } },
+
+
+	// 这是之前打的全屏补丁，现在用不上了
+    // { MODKEY           , XK_f                     , togglefullscr , {0} },
 
     // { MODKEY|ShiftMask,             XK_space,  togglefloating, {0} },
     // { MODKEY|ShiftMask,             XK_0,      tag,            {.ui = ~0 } },
     // { MODKEY,                       XK_h,      setmfact,       {.f = -0.05} },
     // { MODKEY,                       XK_l,      setmfact,       {.f = +0.05} },
-    { MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
-    { MODKEY|ShiftMask,             XK_f,      setlayout,      {.v = &layouts[1]} },
-    { MODKEY,                       XK_p,      setlayout,      {.v = &layouts[2]} },
+
+    { MODKEY,                       XK_f,      togglelayout,      {0} },
+
+	// 手动设置 layout, 用不到
+    // { MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
+    // { MODKEY|ShiftMask,             XK_f,      setlayout,      {.v = &layouts[1]} },
+    // { MODKEY,                       XK_p,      setlayout,      {.v = &layouts[2]} },
     // { MODKEY,                       XK_space,  setlayout,      {0} },
 
     { MODKEY,                       XK_comma,  focusmon,       {.i = -1 } },

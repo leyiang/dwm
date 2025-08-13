@@ -256,6 +256,7 @@ static void setdesktopnames(void);
 static void setfocus(Client *c);
 static void setfullscreen(Client *c, int fullscreen);
 static void setlayout(const Arg *arg);
+static void togglelayout(const Arg *arg);
 static void setmfact(const Arg *arg);
 static void setnumdesktops(void);
 static void setup(void);
@@ -1485,12 +1486,8 @@ monocle(Monitor *m)
 			n++;
 	
 	/* find current window position */
-	fprintf(stderr, "DEBUG: monocle called, sel=%p\n", m->sel);
-	for (c = nexttiled(m->clients); c && c != m->sel; c = nexttiled(c->next)) {
-		fprintf(stderr, "DEBUG: checking client %p\n", c);
+	for (c = nexttiled(m->clients); c && c != m->sel; c = nexttiled(c->next))
 		current++;
-	}
-	fprintf(stderr, "DEBUG: current=%d, n=%d\n", current, n);
 	
 	if (n > 0) /* override layout symbol */
 		snprintf(m->ltsymbol, sizeof m->ltsymbol, "[%d/%d]", current, n);
@@ -2053,6 +2050,26 @@ setlayout(const Arg *arg)
 	if (arg && arg->v)
 		selmon->lt[selmon->sellt] = (Layout *)arg->v;
 	strncpy(selmon->ltsymbol, selmon->lt[selmon->sellt]->symbol, sizeof selmon->ltsymbol);
+	if (selmon->sel)
+		arrange(selmon);
+	else
+		drawbar(selmon);
+}
+
+void
+togglelayout(const Arg *arg)
+{
+	Layout *current = selmon->lt[selmon->sellt];
+	Layout *target;
+	
+	/* toggle between tile and monocle */
+	if (current->arrange == tile)
+		target = &layouts[2]; /* monocle */
+	else
+		target = &layouts[0]; /* tile */
+	
+	selmon->lt[selmon->sellt] = target;
+	strncpy(selmon->ltsymbol, target->symbol, sizeof selmon->ltsymbol);
 	if (selmon->sel)
 		arrange(selmon);
 	else
