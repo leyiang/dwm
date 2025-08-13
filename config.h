@@ -139,9 +139,9 @@ static const Key keys[] = {
     // { MODKEY|ShiftMask,             XK_0,      tag,            {.ui = ~0 } },
     // { MODKEY,                       XK_h,      setmfact,       {.f = -0.05} },
     // { MODKEY,                       XK_l,      setmfact,       {.f = +0.05} },
-    // { MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
-    // { MODKEY|ShiftMask,             XK_f,      setlayout,      {.v = &layouts[1]} },
-    // { MODKEY,                       XK_p,      setlayout,      {.v = &layouts[2]} },
+    { MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
+    { MODKEY|ShiftMask,             XK_f,      setlayout,      {.v = &layouts[1]} },
+    { MODKEY,                       XK_p,      setlayout,      {.v = &layouts[2]} },
     // { MODKEY,                       XK_space,  setlayout,      {0} },
 
     { MODKEY,                       XK_comma,  focusmon,       {.i = -1 } },
@@ -174,8 +174,11 @@ static const Key keys[] = {
 
 static const Button buttons[] = {
 	/* click                event mask      button          function        argument */
-	// { ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
-	// { ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },
+
+	// ClkLtSymbol = Click Layout Symbol (点击当前layout模式)
+	{ ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
+	{ ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },
+
 	{ ClkTagBar,            MODKEY,         Button1,        tag,            {0} },
 	{ ClkTagBar,            MODKEY,         Button3,        toggletag,      {0} },
 	{ ClkWinTitle,          0,              Button2,        zoom,           {0} },

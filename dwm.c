@@ -1057,10 +1057,9 @@ drawbar(Monitor *m)
 		x += w;
 	}
 
-    // Hide layout indicator
-	// w = TEXTW(m->ltsymbol);
-	// drw_setscheme(drw, scheme[SchemeTagsNorm]);
-	// x = drw_text(drw, x, 0, w, bh, lrpad / 2, m->ltsymbol, 0);
+	w = TEXTW(m->ltsymbol);
+	drw_setscheme(drw, scheme[SchemeTagsNorm]);
+	x = drw_text(drw, x, 0, w, bh, lrpad / 2, m->ltsymbol, 0);
 
 	if ((w = m->ww - tw - x) > bh) {
 		if (m->sel) {
@@ -1189,6 +1188,9 @@ focusstack(const Arg *arg)
 	if (c) {
 		focus(c);
 		restack(selmon);
+		/* update layout symbol for monocle mode */
+		if (selmon->lt[selmon->sellt]->arrange == monocle)
+			arrange(selmon);
 	}
 }
 
@@ -1475,14 +1477,23 @@ maprequest(XEvent *e)
 void
 monocle(Monitor *m)
 {
-	unsigned int n = 0;
+	unsigned int n = 0, current = 1;
 	Client *c;
 
 	for (c = m->clients; c; c = c->next)
 		if (ISVISIBLE(c))
 			n++;
+	
+	/* find current window position */
+	fprintf(stderr, "DEBUG: monocle called, sel=%p\n", m->sel);
+	for (c = nexttiled(m->clients); c && c != m->sel; c = nexttiled(c->next)) {
+		fprintf(stderr, "DEBUG: checking client %p\n", c);
+		current++;
+	}
+	fprintf(stderr, "DEBUG: current=%d, n=%d\n", current, n);
+	
 	if (n > 0) /* override layout symbol */
-		snprintf(m->ltsymbol, sizeof m->ltsymbol, "[%d]", n);
+		snprintf(m->ltsymbol, sizeof m->ltsymbol, "[%d/%d]", current, n);
 	for (c = nexttiled(m->clients); c; c = nexttiled(c->next))
 		resize(c, m->wx, m->wy, m->ww - 2 * c->bw, m->wh - 2 * c->bw, 0);
 }
