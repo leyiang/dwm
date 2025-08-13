@@ -94,7 +94,7 @@
 
 /* enums */
 enum { CurNormal, CurResize, CurMove, CurLast }; /* cursor */
-enum { SchemeNorm, SchemeSel, SchemeStatus, SchemeTagsSel, SchemeTagsNorm, SchemeInfoSel, SchemeInfoNorm, SchemeTagsUrgent}; /* color schemes */
+enum { SchemeNorm, SchemeSel, SchemeStatus, SchemeTagsSel, SchemeTagsNorm, SchemeInfoSel, SchemeInfoNorm, SchemeTagsUrgent, SchemeLayoutMono, SchemeLayoutTile}; /* color schemes */
 enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
        NetSystemTray, NetSystemTrayOP, NetSystemTrayOrientation, NetSystemTrayOrientationHorz,
        NetWMFullscreen, NetActiveWindow, NetWMWindowType,
@@ -1085,7 +1085,11 @@ drawbar(Monitor *m)
 	}
 
 	w = TEXTW(m->ltsymbol);
-	drw_setscheme(drw, scheme[SchemeTagsNorm]);
+	/* Use different colors for different layouts */
+	if (m->lt[m->sellt] == &layouts[2]) /* monocle layout */
+		drw_setscheme(drw, scheme[SchemeLayoutMono]);
+	else /* tile or floating layout */
+		drw_setscheme(drw, scheme[SchemeLayoutTile]);
 	x = drw_text(drw, x, 0, w, bh, lrpad / 2, m->ltsymbol, 0);
 
 	if ((w = m->ww - tw - x) > bh) {

@@ -46,6 +46,10 @@ static const char *colors[][3]      = {
     [SchemeTagsUrgent] = { "#FFFFFF"        , "#ff6f00"         , "#000000"       } , // Tagbar left unselected {text     , background , not used but cannot be empty }
     [SchemeInfoSel]    = { col_tag_sel_fore , col_title_back    , "#000000"       } , // infobar middle  selected {text   , background , not used but cannot be empty }
     [SchemeInfoNorm]   = { col_gray3        , col_title_back    , "#000000"       } , // infobar middle  unselected {text , background , not used but cannot be empty }
+    [SchemeLayoutMono] = { "#000000"        , "#FFBE5E"          , "#000000"       } , // Monocle layout color scheme
+
+	// This is the same as  SchemeTagsNorm
+    [SchemeLayoutTile]   = { col_tag_nor_fore , col_tag_nor_back  , "#000000"       } , // Tagbar left unselected {text     , background , not used but cannot be empty }
 };
 
 static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
