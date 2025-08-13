@@ -229,6 +229,7 @@ static void grabkeys(void);
 static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
 static void killclient(const Arg *arg);
+static void magicgrid(Monitor *m);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
@@ -1503,6 +1504,73 @@ maprequest(XEvent *e)
 		return;
 	if (!wintoclient(ev->window))
 		manage(ev->window, &wa);
+}
+
+void
+magicgrid(Monitor *m)
+{
+    unsigned int i, n;
+    unsigned int cx, cy, cw, ch;
+    unsigned int dx;
+    unsigned int cols, rows, overcols;
+    Client *c;
+
+    for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
+    if (n == 0) return;
+    if (n == 1) {
+        c = nexttiled(m->clients);
+        cw = (m->ww - 2 * gappx) * 0.6;
+        ch = (m->wh - 2 * gappx) * 0.6;
+        resize(c,
+               m->wx + (m->ww - cw) / 2 + gappx,
+               m->wy + (m->wh - ch) / 2 + gappx,
+               cw - 2 * c->bw,
+               ch - 2 * c->bw,
+               0);
+        return;
+    }
+    if (n == 2) {
+        c = nexttiled(m->clients);
+        cw = (m->ww - 2 * gappx - gappx) / 2;
+        ch = (m->wh - 2 * gappx) * 0.6;
+        resize(c,
+               m->wx + gappx,
+               m->wy + (m->wh - ch) / 2 + gappx,
+               cw - 2 * c->bw,
+               ch - 2 * c->bw,
+               0);
+        resize(nexttiled(c->next),
+               m->wx + cw + gappx + gappx,
+               m->wy + (m->wh - ch) / 2 + gappx,
+               cw - 2 * c->bw,
+               ch - 2 * c->bw,
+               0);
+        return;
+    }
+
+    for (cols = 0; cols <= n / 2; cols++)
+        if (cols * cols >= n)
+            break;
+    rows = (cols && (cols - 1) * cols >= n) ? cols - 1 : cols;
+    ch = (m->wh - 2 * gappx - (rows - 1) * gappx) / rows;
+    cw = (m->ww - 2 * gappx - (cols - 1) * gappx) / cols;
+
+    overcols = n % cols;
+    if (overcols)
+        dx = (m->ww - overcols * cw - (overcols - 1) * gappx) / 2 - gappx;
+    for(i = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++) {
+        cx = m->wx + (i % cols) * (cw + gappx);
+        cy = m->wy + (i / cols) * (ch + gappx);
+        if (overcols && i >= n - overcols) {
+            cx += dx;
+        }
+        resize(c,
+               cx + gappx,
+               cy + gappx,
+               cw - 2 * c->bw,
+               ch - 2 * c->bw,
+               0);
+    }
 }
 
 void

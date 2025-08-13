@@ -80,6 +80,7 @@ static const Layout layouts[] = {
     { "[]=",      tile },    /* first entry is default */
     { "><>",      NULL },    /* no layout function means floating behavior */
     { "[M]",      monocle },
+    { "-mg-",       magicgrid },
 };
 
 /* key definitions */
@@ -161,6 +162,8 @@ static const Key keys[] = {
     // { MODKEY|ShiftMask,             XK_f,      setlayout,      {.v = &layouts[1]} },
     // { MODKEY,                       XK_p,      setlayout,      {.v = &layouts[2]} },
     // { MODKEY,                       XK_space,  setlayout,      {0} },
+
+    { MODKEY|ShiftMask,             XK_m,      setlayout,      {.v = &layouts[3]} },
 
     { MODKEY,                       XK_comma,  focusmon,       {.i = -1 } },
     { MODKEY,                       XK_period, focusmon,       {.i = +1 } },
