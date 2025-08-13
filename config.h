@@ -103,7 +103,14 @@ static const Key keys[] = {
     /* modifier                     key        function        argument */
     { MODKEY,                       XK_e,      spawn,          SHCMD("dmenu_o --run") },
     { MODKEY|Mod1Mask,              XK_e,      spawn,          SHCMD("dmenu_o --o") },
-    { MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
+
+
+	// Smart Start Terminal
+    { MODKEY,                       XK_Return, spawn,          SHCMD("smartterminal") },
+
+	// Just in case Mod+Return script doesn't work
+    { MODKEY|ShiftMask,             XK_Return, spawn,          {.v = termcmd } },
+
     { MODKEY,                       XK_j,      focusstack,     {.i = +1 } },
     { MODKEY,                       XK_k,      focusstack,     {.i = -1 } },
 
