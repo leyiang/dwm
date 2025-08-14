@@ -74,7 +74,7 @@ static const float mfact        = 0.55; /* factor of master area size [0.05..0.9
 static const int   nmaster        = 1;    /* number of clients in master area */
 static const int   resizehints    = 1;    /* 1 means respect size hints in tiled resizals */
 static const int   lockfullscreen = 1; /* 1 will force focus on the fullscreen window */
-static const int   insert_win_at_end = 1; /* 新窗口插入位置: 1=末尾, 0=开头 (注意: zoom功能始终插入开头以保证主区域行为) */
+static const int   insert_win_at_end = 0; /* 新窗口插入位置: 1=末尾, 0=开头 (注意: zoom功能始终插入开头以保证主区域行为) */
 
 static const Layout layouts[] = {
     /* symbol     arrange function */
@@ -200,6 +200,8 @@ static const Button buttons[] = {
 	// ClkLtSymbol = Click Layout Symbol (点击当前layout模式)
 	{ ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
 	{ ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },
+	{ ClkLtSymbol,          0,              Button4,        focusstack,     {.i = -1} },
+	{ ClkLtSymbol,          0,              Button5,        focusstack,     {.i = +1} },
 
 	{ ClkTagBar,            MODKEY,         Button1,        tag,            {0} },
 	{ ClkTagBar,            MODKEY,         Button3,        toggletag,      {0} },

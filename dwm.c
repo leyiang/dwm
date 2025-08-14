@@ -1122,9 +1122,25 @@ drawbar(Monitor *m)
 
 	w = TEXTW(m->ltsymbol);
 	/* Use different colors for different layouts */
-	if (m->lt[m->sellt] == &layouts[2]) /* monocle layout */
-		drw_setscheme(drw, scheme[SchemeLayoutMono]);
-	else /* tile or floating layout */
+	if (m->lt[m->sellt] == &layouts[2]) { /* monocle layout */
+		/* 
+		 * Only show special monocle color when there are multiple windows
+		 * to indicate that windows are stacked behind the current one.
+		 * This provides visual feedback about window count in monocle mode.
+		 * 
+		 * TODO: This window counting logic is temporary and will be optimized
+		 * in future versions to avoid redundant calculations.
+		 */
+		int n = 0;
+		Client *c;
+		for (c = nexttiled(m->clients); c; c = nexttiled(c->next))
+			n++;
+		/* Only use special color if more than 1 window */
+		if (n > 1)
+			drw_setscheme(drw, scheme[SchemeLayoutMono]);
+		else
+			drw_setscheme(drw, scheme[SchemeLayoutTile]);
+	} else /* tile or floating layout */
 		drw_setscheme(drw, scheme[SchemeLayoutTile]);
 	x = drw_text(drw, x, 0, w, bh, lrpad / 2, m->ltsymbol, 0);
 
