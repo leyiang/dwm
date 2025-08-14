@@ -50,6 +50,7 @@ static const char *colors[][3]      = {
 
 	// This is the same as  SchemeTagsNorm
     [SchemeLayoutTile]   = { col_tag_nor_fore , col_tag_nor_back  , "#000000"       } , // Tagbar left unselected {text     , background , not used but cannot be empty }
+    [SchemeHidden]       = { "#FFFFFF"        , "#FF765E"         , "#000000"       } , // Hidden window indicator {text, background, not used}
 };
 
 static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
@@ -115,6 +116,7 @@ static const Key keys[] = {
 
     { MODKEY,                       XK_j,      focusstack,     {.i = +1 } },
     { MODKEY,                       XK_k,      focusstack,     {.i = -1 } },
+    { MODKEY,                       XK_h,      hide,           {0} },
 
     // { MODKEY,                       XK_b,      togglebar,      {0} },
     // { MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },

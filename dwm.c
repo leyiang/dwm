@@ -57,7 +57,7 @@
 #define CLEANMASK(mask)         (mask & ~(numlockmask|LockMask) & (ShiftMask|ControlMask|Mod1Mask|Mod2Mask|Mod3Mask|Mod4Mask|Mod5Mask))
 #define INTERSECT(x,y,w,h,m)    (MAX(0, MIN((x)+(w),(m)->wx+(m)->ww) - MAX((x),(m)->wx)) \
                                * MAX(0, MIN((y)+(h),(m)->wy+(m)->wh) - MAX((y),(m)->wy)))
-#define ISVISIBLE(C)            ((C->tags & C->mon->tagset[C->mon->seltags]))
+#define ISVISIBLE(C)            ((C->tags & C->mon->tagset[C->mon->seltags]) && !C->ishidden)
 #define LENGTH(X)               (sizeof X / sizeof X[0])
 #define MOUSEMASK               (BUTTONMASK|PointerMotionMask)
 #define WIDTH(X)                ((X)->w + 2 * (X)->bw)
@@ -94,7 +94,7 @@
 
 /* enums */
 enum { CurNormal, CurResize, CurMove, CurLast }; /* cursor */
-enum { SchemeNorm, SchemeSel, SchemeStatus, SchemeTagsSel, SchemeTagsNorm, SchemeInfoSel, SchemeInfoNorm, SchemeTagsUrgent, SchemeLayoutMono, SchemeLayoutTile}; /* color schemes */
+enum { SchemeNorm, SchemeSel, SchemeStatus, SchemeTagsSel, SchemeTagsNorm, SchemeInfoSel, SchemeInfoNorm, SchemeTagsUrgent, SchemeLayoutMono, SchemeLayoutTile, SchemeHidden}; /* color schemes */
 enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
        NetSystemTray, NetSystemTrayOP, NetSystemTrayOrientation, NetSystemTrayOrientationHorz,
        NetWMFullscreen, NetActiveWindow, NetWMWindowType,
@@ -129,7 +129,7 @@ struct Client {
 	int basew, baseh, incw, inch, maxw, maxh, minw, minh, hintsvalid;
 	int bw, oldbw;
 	unsigned int tags;
-	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen, isterminal, noswallow;
+	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen, isterminal, noswallow, ishidden;
 	pid_t pid;
 	Client *next;
 	Client *snext;
@@ -167,6 +167,7 @@ struct Monitor {
 	Client *clients;
 	Client *sel;
 	Client *stack;
+	Client *hidden;
 	Monitor *next;
 	Window barwin;
 	const Layout *lt[2];
@@ -227,6 +228,7 @@ static unsigned int getsystraywidth();
 static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void grabbuttons(Client *c, int focused);
 static void grabkeys(void);
+static void hide(const Arg *arg);
 static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
 static void killclient(const Arg *arg);
@@ -348,6 +350,7 @@ static Display *dpy;
 static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root, wmcheckwin;
+static Client *globalhidden = NULL;  /* Global hidden window pointer */
 
 static xcb_connection_t *xcon;
 
@@ -476,13 +479,17 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 void
 arrange(Monitor *m)
 {
-	if (m)
+	if (m) {
+		fprintf(stderr, "arrange: before showhide m->hidden=%p\n", (void*)m->hidden);
 		showhide(m->stack);
+		fprintf(stderr, "arrange: after showhide m->hidden=%p\n", (void*)m->hidden);
+	}
 	else for (m = mons; m; m = m->next)
 		showhide(m->stack);
 	if (m) {
 		arrangemon(m);
 		restack(m);
+		fprintf(stderr, "arrange: after restack m->hidden=%p\n", (void*)m->hidden);
 	} else for (m = mons; m; m = m->next)
 		arrangemon(m);
 }
@@ -1144,6 +1151,15 @@ drawbar(Monitor *m)
 		drw_setscheme(drw, scheme[SchemeLayoutTile]);
 	x = drw_text(drw, x, 0, w, bh, lrpad / 2, m->ltsymbol, 0);
 
+	/* Draw hidden indicator [H] as a separate label */
+	fprintf(stderr, "drawbar: globalhidden=%p\n", (void*)globalhidden);
+	if (globalhidden) {
+		fprintf(stderr, "Drawing [H] indicator\n");
+		w = TEXTW("[H]");
+		drw_setscheme(drw, scheme[SchemeHidden]);
+		x = drw_text(drw, x, 0, w, bh, lrpad / 2, "[H]", 0);
+	}
+
 	if ((w = m->ww - tw - x) > bh) {
 		if (m->sel) {
 			drw_setscheme(drw, scheme[m == selmon ? SchemeInfoSel : SchemeInfoNorm]);
@@ -1275,6 +1291,72 @@ focusstack(const Arg *arg)
 		if (selmon->lt[selmon->sellt]->arrange == monocle)
 			arrange(selmon);
 	}
+}
+
+void
+hide(const Arg *arg)
+{
+	Client *c;
+	
+	fprintf(stderr, "hide() called: globalhidden=%p, selmon->sel=%p\n", 
+	        (void*)globalhidden, (void*)selmon->sel);
+	
+	/* If there's a hidden window, restore it */
+	if (globalhidden) {
+		c = globalhidden;
+		fprintf(stderr, "Restoring hidden window: %s\n", c->name);
+		c->ishidden = 0;
+		globalhidden = NULL;
+		
+		/* Move window to current tag and monitor if needed */
+		if (!ISVISIBLE(c) || c->mon != selmon) {
+			fprintf(stderr, "Moving hidden window to current tag and monitor\n");
+			if (c->mon != selmon) {
+				/* Move to current monitor */
+				unfocus(c, 1);
+				detach(c);
+				detachstack(c);
+				c->mon = selmon;
+				attach(c);
+				attachstack(c);
+			}
+			/* Move to current tag */
+			c->tags = selmon->tagset[selmon->seltags];
+		}
+		
+		/* Restore window position */
+		XMoveWindow(dpy, c->win, c->x, c->y);
+		focus(c);
+		arrange(selmon);
+		return;
+	}
+	
+	/* If no selected window, nothing to hide */
+	if (!selmon->sel) {
+		fprintf(stderr, "No selected window to hide\n");
+		return;
+	}
+	
+	/* Hide current window */
+	c = selmon->sel;
+	fprintf(stderr, "Hiding window: %s, setting globalhidden to %p\n", c->name, (void*)c);
+	c->ishidden = 1;
+	globalhidden = c;
+	/* Move window offscreen instead of unmapping it */
+	XMoveWindow(dpy, c->win, -9999, c->y);
+	
+	/* Focus next visible window */
+	Client *next = NULL;
+	for (next = selmon->clients; next; next = next->next) {
+		if (ISVISIBLE(next) && !next->ishidden) {
+			fprintf(stderr, "Focusing next window: %s\n", next->name);
+			break;
+		}
+	}
+	
+	focus(next);
+	arrange(selmon);
+	fprintf(stderr, "After arrange: globalhidden=%p\n", (void*)globalhidden);
 }
 
 Atom
@@ -2374,16 +2456,19 @@ showhide(Client *c)
 {
 	if (!c)
 		return;
-	if (ISVISIBLE(c)) {
+	if (ISVISIBLE(c) && !c->ishidden) {
 		/* show clients top down */
 		XMoveWindow(dpy, c->win, c->x, c->y);
 		if ((!c->mon->lt[c->mon->sellt]->arrange || c->isfloating) && !c->isfullscreen)
 			resize(c, c->x, c->y, c->w, c->h, 0);
 		showhide(c->snext);
-	} else {
-		/* hide clients bottom up */
+	} else if (!c->ishidden) {
+		/* hide clients bottom up (but not manually hidden ones) */
 		showhide(c->snext);
 		XMoveWindow(dpy, c->win, WIDTH(c) * -2, c->y);
+	} else {
+		/* Skip manually hidden windows */
+		showhide(c->snext);
 	}
 }
 
@@ -2584,6 +2669,12 @@ unmanage(Client *c, int destroyed)
 		arrange(m);
 		focus(NULL);
 		return;
+	}
+
+	/* Clean up hidden pointer if this window was hidden */
+	if (globalhidden == c) {
+		fprintf(stderr, "UNMANAGE: Clearing globalhidden pointer for window: %s\n", c->name);
+		globalhidden = NULL;
 	}
 
 	detach(c);
