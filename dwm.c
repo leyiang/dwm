@@ -1230,7 +1230,9 @@ focus(Client *c)
 		detachstack(c);
 		attachstack(c);
 		grabbuttons(c, 1);
-		XSetWindowBorder(dpy, c->win, scheme[SchemeSel][ColBorder].pixel);
+		// Force border alpha to opaque to prevent transparency issues with compositors
+		unsigned long border_color = scheme[SchemeSel][ColBorder].pixel | (0xFFUL << 24);
+		XSetWindowBorder(dpy, c->win, border_color);
 		setfocus(c);
 	} else {
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
@@ -1583,7 +1585,9 @@ manage(Window w, XWindowAttributes *wa)
 
 	wc.border_width = c->bw;
 	XConfigureWindow(dpy, w, CWBorderWidth, &wc);
-	XSetWindowBorder(dpy, w, scheme[SchemeNorm][ColBorder].pixel);
+	// Force border alpha to opaque to prevent transparency issues with compositors
+	unsigned long border_color = scheme[SchemeNorm][ColBorder].pixel | (0xFFUL << 24);
+	XSetWindowBorder(dpy, w, border_color);
 	configure(c); /* propagates border_width, if size doesn't change */
 	updatewindowtype(c);
 	updatesizehints(c);
@@ -2644,7 +2648,9 @@ unfocus(Client *c, int setfocus)
 	if (!c)
 		return;
 	grabbuttons(c, 0);
-	XSetWindowBorder(dpy, c->win, scheme[SchemeNorm][ColBorder].pixel);
+	// Force border alpha to opaque to prevent transparency issues with compositors
+	unsigned long border_color = scheme[SchemeNorm][ColBorder].pixel | (0xFFUL << 24);
+	XSetWindowBorder(dpy, c->win, border_color);
 	if (setfocus) {
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 		XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
