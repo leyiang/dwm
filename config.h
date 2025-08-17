@@ -53,7 +53,12 @@ static const char *colors[][3]      = {
     [SchemeHidden]       = { "#FFFFFF"        , "#FF765E"         , "#000000"       } , // Hidden window indicator {text, background, not used}
 };
 
-static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "󰒱" };
+
+/* Default layouts for specific tags (tag index, layout index) */
+static const int tag_default_layouts[][2] = {
+	{ 9, 3 },  /* tag 'b' (index 9) uses magic grid (layouts[3]) */
+};
 
 static const Rule rules[] = {
 	/* class     instance  title           tags mask  isfloating  isterminal  noswallow  monitor */
@@ -82,7 +87,7 @@ static const Layout layouts[] = {
     { "[]=",      tile },    /* first entry is default */
     { "><>",      NULL },    /* no layout function means floating behavior */
     { "[M]",      monocle },
-    { "-mg-",       magicgrid },
+    { "\U000f0758",       magicgrid },
 };
 
 /* key definitions */
@@ -184,6 +189,8 @@ static const Key keys[] = {
     TAGKEYS(XK_7, 6)
     TAGKEYS(XK_8, 7)
     TAGKEYS(XK_9, 8)
+    TAGKEYS(XK_b, 9)
+    { MODKEY|ShiftMask,             XK_b,      view,           {.ui = 1 << 9} },
 };
 
 /* button definitions */

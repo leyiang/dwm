@@ -3126,6 +3126,20 @@ view(const Arg *arg)
 	selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt];
 	selmon->lt[selmon->sellt^1] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt^1];
 
+	/* 
+	 * 问题：原先检查 == &layouts[0] 会导致每次切换tag时都重置布局，覆盖用户手动选择
+	 * 解决：只在tag无窗口时设置默认布局，认为无窗口的tag尚未被用户使用过
+	 * 这样可以尊重用户的布局选择，避免强制覆盖已配置的布局
+	 */
+	for (int i = 0; i < sizeof(tag_default_layouts) / sizeof(tag_default_layouts[0]); i++) {
+		if (tag_default_layouts[i][0] == selmon->pertag->curtag - 1 && 
+		    !selmon->clients) { /* 只在tag无窗口时设置默认布局 */
+			selmon->lt[selmon->sellt] = &layouts[tag_default_layouts[i][1]];
+			selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt] = &layouts[tag_default_layouts[i][1]];
+			break;
+		}
+	}
+
 	if (selmon->showbar != selmon->pertag->showbars[selmon->pertag->curtag])
 		togglebar(NULL);
 
