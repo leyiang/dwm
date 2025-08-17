@@ -278,6 +278,7 @@ static void togglebar(const Arg *arg);
 static void togglefloating(const Arg *arg);
 static void togglefullscr(const Arg *arg);
 static void toggletag(const Arg *arg);
+static void jumpbetweentag(const Arg *arg);
 static void toggleview(const Arg *arg);
 static void unfocus(Client *c, int setfocus);
 static void unmanage(Client *c, int destroyed);
@@ -3092,6 +3093,25 @@ updatewmhints(Client *c)
 		else
 			c->neverfocus = 0;
 		XFree(wmh);
+	}
+}
+
+void
+jumpbetweentag(const Arg *arg)
+{
+	/* 智能标签跳转功能：
+	 * - 如果当前在目标标签：跳回到前一个标签
+	 * - 如果当前不在目标标签：切换到目标标签
+	 * 
+	 * 这提供了便捷的标签切换行为，适用于常用标签。
+	 * 例如：Super+b 可以在标签'b'和前一个标签之间切换。
+	 */
+	if ((arg->ui & TAGMASK) == selmon->tagset[selmon->seltags]) {
+		/* 已经在指定标签，回到前一个标签 */
+		view(&(Arg){.ui = 0});
+	} else {
+		/* 切换到指定标签 */
+		view(arg);
 	}
 }
 

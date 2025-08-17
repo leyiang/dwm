@@ -189,8 +189,14 @@ static const Key keys[] = {
     TAGKEYS(XK_7, 6)
     TAGKEYS(XK_8, 7)
     TAGKEYS(XK_9, 8)
-    TAGKEYS(XK_b, 9)
-    { MODKEY|ShiftMask,             XK_b,      view,           {.ui = 1 << 9} },
+
+	// 之前这里尝试用重复的快捷键定义（试图Overwrite TAGKEYS里的一条)
+	// 但是发现会同时触发（而不是覆盖）
+    { MODKEY|ControlMask,           XK_b,      toggleview,     {.ui = 1 << 9} },
+    { MODKEY|Mod1Mask,             XK_b,      tag,            {.ui = 1 << 9} },
+    { MODKEY|ControlMask|ShiftMask, XK_b,      toggletag,      {.ui = 1 << 9} },
+    { MODKEY,             			XK_b,      jumpbetweentag,  {.ui = 1 << 9} },
+    { MODKEY|ShiftMask,             XK_b,      view, 			{.ui = 1 << 9} },
 };
 
 /* button definitions */
