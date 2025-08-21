@@ -42,4 +42,13 @@ uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/dwm\
 		${DESTDIR}${MANPREFIX}/man1/dwm.1
 
-.PHONY: all clean dist install uninstall
+qemu: clean
+	@if [ -f config.h ]; then cp config.h config.h.backup; fi
+	cp config-qemu.h config.h
+	${MAKE} dwm
+	@if [ -f config.h.backup ]; then mv config.h.backup config.h; fi
+
+clean-config:
+	@if [ -f config.h.backup ]; then mv config.h.backup config.h; fi
+
+.PHONY: all clean dist install uninstall qemu clean-config
