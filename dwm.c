@@ -136,6 +136,7 @@ struct Client {
 	Client *swallowing;
 	Monitor *mon;
 	Window win;
+	Window titlewin;
 };
 
 typedef struct {
@@ -233,6 +234,11 @@ static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
 static void killclient(const Arg *arg);
 static void magicgrid(Monitor *m);
+static void drawmagicgridtitle(Client *c, int x, int y, int w, int h);
+static void createtitlebar(Client *c);
+static void drawtitlebar(Client *c);
+static void destroytitlebar(Client *c);
+static void hidetitlebars(Monitor *m);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
@@ -1598,6 +1604,7 @@ manage(Window w, XWindowAttributes *wa)
 	updatewmhints(c);
 	XSelectInput(dpy, w, EnterWindowMask|FocusChangeMask|PropertyChangeMask|StructureNotifyMask);
 	grabbuttons(c, 0);
+	createtitlebar(c);
 	if (!c->isfloating)
 		c->isfloating = c->oldstate = trans != None || c->isfixed;
 	if (c->isfloating)
@@ -1649,6 +1656,132 @@ maprequest(XEvent *e)
 }
 
 void
+createtitlebar(Client *c)
+{
+    XSetWindowAttributes wa;
+    
+    /* Initialize titlewin to None */
+    c->titlewin = None;
+    
+    /* Calculate dynamic titlebar dimensions based on font height */
+    int title_height = drw->fonts->h + 4;  /* font height + some padding */
+    int title_padding = drw->fonts->h / 4; /* proportional padding */
+    
+    printf("Font height: %d, calculated title_height: %d, title_padding: %d\n", 
+           drw->fonts->h, title_height, title_padding);
+    fflush(stdout);
+    
+    /* Create titlebar window with custom magicgrid colors */
+    wa.override_redirect = True;
+    
+    /* Create custom color for window background */
+    Clr titlebar_bg_color;
+    drw_clr_create(drw, &titlebar_bg_color, magicGridTitleBG);
+    
+    wa.background_pixel = titlebar_bg_color.pixel;
+    wa.border_pixel = titlebar_bg_color.pixel;
+    wa.event_mask = ExposureMask;
+    
+    c->titlewin = XCreateWindow(dpy, root, c->x, c->y - title_height,
+                               c->w + 2 * c->bw, title_height, 0, DefaultDepth(dpy, screen),
+                               CopyFromParent, DefaultVisual(dpy, screen),
+                               CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWEventMask, &wa);
+    
+}
+
+void
+drawtitlebar(Client *c)
+{
+    if (!c->titlewin)
+        return;
+        
+    /* Calculate dynamic titlebar dimensions based on font height */
+    int title_height = drw->fonts->h + 4;  /* font height + some padding */
+    int title_padding = drw->fonts->h / 4; /* proportional padding */
+    
+    /* Save original drawing context dimensions */
+    unsigned int orig_w = drw->w;
+    unsigned int orig_h = drw->h;
+    
+    /* Set drawing context to titlebar size (including border) */
+    int title_w = c->w + 2 * c->bw;
+    drw_resize(drw, title_w, title_height);
+    
+    /* Create custom color scheme for magicgrid titles */
+    Clr title_colors[3];
+    /* Use the same colors for all windows - no distinction for selected */
+
+	/**
+	 * 这里非常奇怪，ColFg 必需要设置成 BG color, 在画rect用的是前景色吗？
+	 * 下面draw_text之前要再设一次正确的前景色，暂时先这样吧，只会用AI写代码是这样的，最终还是要连猜带蒙
+	 */
+    drw_clr_create(drw, &title_colors[ColFg], magicGridTitleBG);
+    drw_clr_create(drw, &title_colors[ColBg], magicGridTitleBG);
+    drw_clr_create(drw, &title_colors[ColBorder], magicGridTitleBG);
+    
+    /* Set our custom color scheme */
+    drw_setscheme(drw, title_colors);
+    
+    /* Draw background */
+    drw_rect(drw, 0, 0, title_w, title_height, 1, 0);
+    
+    drw_clr_create(drw, &title_colors[ColFg], magicGridTitleText);
+    /* Draw title text with padding */
+    drw_text(drw, title_padding, 0, title_w - 2 * title_padding, 
+             title_height, (title_height - drw->fonts->h) / 2, c->name, 0);
+    
+    /* Map to titlebar window */
+    drw_map(drw, c->titlewin, 0, 0, title_w, title_height);
+    
+    /* Restore original drawing context dimensions */
+    drw_resize(drw, orig_w, orig_h);
+}
+
+void
+destroytitlebar(Client *c)
+{
+    if (c->titlewin) {
+        XDestroyWindow(dpy, c->titlewin);
+        c->titlewin = None;
+        printf("Destroyed titlebar window for '%s'\n", c->name);
+        fflush(stdout);
+    }
+}
+
+void
+hidetitlebars(Monitor *m)
+{
+    Client *c;
+    for (c = m->clients; c; c = c->next) {
+        if (c->titlewin) {
+            XUnmapWindow(dpy, c->titlewin);
+        }
+    }
+}
+
+void
+drawmagicgridtitle(Client *c, int x, int y, int w, int h)
+{
+    /* Update titlebar position and size, considering window border */
+    if (c->titlewin) {
+        /* Calculate dynamic titlebar dimensions based on font height */
+        int title_height = drw->fonts->h + 4;  /* font height + some padding */
+        
+        /* Position titlebar to match client window including border */
+        int title_x = c->x;
+        int title_y = c->y - title_height;
+        int title_w = c->w + 2 * c->bw;
+        
+        XMoveResizeWindow(dpy, c->titlewin, title_x, title_y, title_w, title_height);
+        XMapWindow(dpy, c->titlewin);
+        drawtitlebar(c);
+        printf("Updated titlebar '%s': client(x=%d,y=%d,w=%d,h=%d,bw=%d) titlebar(x=%d,y=%d,w=%d,h=%d) gap=%d\n", 
+               c->name, c->x, c->y, c->w, c->h, c->bw, title_x, title_y, title_w, title_height, gappx);
+        fflush(stdout);
+    }
+}
+
+void
 magicgrid(Monitor *m)
 {
     unsigned int i, n;
@@ -1656,37 +1789,60 @@ magicgrid(Monitor *m)
     unsigned int dx;
     unsigned int cols, rows, overcols;
     Client *c;
+    
+    /* Calculate dynamic titlebar height based on font height */
+    int dynamic_title_height = drw->fonts->h + 4;
 
+    printf("magicgrid called! monitor=%p, dynamic_title_height=%d\n", (void*)m, dynamic_title_height);
+    fflush(stdout);
     for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
+    printf("magicgrid: found %d windows\n", n);
+    fflush(stdout);
     if (n == 0) return;
     if (n == 1) {
         c = nexttiled(m->clients);
         cw = (m->ww - 2 * gappx) * 0.6;
         ch = (m->wh - 2 * gappx) * 0.6;
+        
+        /* Position window with title space */
         resize(c,
                m->wx + (m->ww - cw) / 2 + gappx,
-               m->wy + (m->wh - ch) / 2 + gappx,
+               m->wy + (m->wh - ch) / 2 + gappx + dynamic_title_height,
                cw - 2 * c->bw,
-               ch - 2 * c->bw,
+               ch - 2 * c->bw - dynamic_title_height,
                0);
+        
+        /* Draw title */
+        drawmagicgridtitle(c, 0, 0, 0, 0);
         return;
     }
     if (n == 2) {
         c = nexttiled(m->clients);
         cw = (m->ww - 2 * gappx - gappx) / 2;
         ch = (m->wh - 2 * gappx) * 0.6;
+        
+        /* First window */
         resize(c,
                m->wx + gappx,
-               m->wy + (m->wh - ch) / 2 + gappx,
+               m->wy + (m->wh - ch) / 2 + gappx + dynamic_title_height,
                cw - 2 * c->bw,
-               ch - 2 * c->bw,
+               ch - 2 * c->bw - dynamic_title_height,
                0);
-        resize(nexttiled(c->next),
+        
+        /* Draw first title */
+        drawmagicgridtitle(c, 0, 0, 0, 0);
+        
+        /* Second window */
+        c = nexttiled(c->next);
+        resize(c,
                m->wx + cw + gappx + gappx,
-               m->wy + (m->wh - ch) / 2 + gappx,
+               m->wy + (m->wh - ch) / 2 + gappx + dynamic_title_height,
                cw - 2 * c->bw,
-               ch - 2 * c->bw,
+               ch - 2 * c->bw - dynamic_title_height,
                0);
+        
+        /* Draw second title */
+        drawmagicgridtitle(c, 0, 0, 0, 0);
         return;
     }
 
@@ -1706,12 +1862,17 @@ magicgrid(Monitor *m)
         if (overcols && i >= n - overcols) {
             cx += dx;
         }
+        
+        /* Position window with title space */
         resize(c,
                cx + gappx,
-               cy + gappx,
+               cy + gappx + dynamic_title_height,
                cw - 2 * c->bw,
-               ch - 2 * c->bw,
+               ch - 2 * c->bw - dynamic_title_height,
                0);
+        
+        /* Draw title */
+        drawmagicgridtitle(c, 0, 0, 0, 0);
     }
 }
 
@@ -1719,6 +1880,7 @@ void
 monocle(Monitor *m)
 {
 	unsigned int n = 0, current = 1;
+	hidetitlebars(m);
 	Client *c;
 
 	for (c = m->clients; c; c = c->next)
@@ -1884,6 +2046,9 @@ propertynotify(XEvent *e)
 			updatetitle(c);
 			if (c == c->mon->sel)
 				drawbar(c->mon);
+			/* If magicgrid layout is active, redraw all titles */
+			if (c->mon->lt[c->mon->sellt]->arrange == magicgrid)
+				arrange(c->mon);
 		}
 		if (ev->atom == netatom[NetWMWindowType])
 			updatewindowtype(c);
@@ -2553,6 +2718,7 @@ tile(Monitor *m)
 {
 	unsigned int i, n, h, r, g = 0, mw, my, ty;
 	Client *c;
+	hidetitlebars(m);
 
 	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
 	if (n == 0)
@@ -2695,6 +2861,8 @@ unmanage(Client *c, int destroyed)
 {
 	Monitor *m = c->mon;
 	XWindowChanges wc;
+	
+	destroytitlebar(c);
 
 	if (c->swallowing) {
 		unswallow(c);

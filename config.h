@@ -82,6 +82,10 @@ static const int   resizehints    = 1;    /* 1 means respect size hints in tiled
 static const int   lockfullscreen = 1; /* 1 will force focus on the fullscreen window */
 static const int   insert_win_at_end = 0; /* 新窗口插入位置: 1=末尾, 0=开头 (注意: zoom功能始终插入开头以保证主区域行为) */
 
+/* magicgrid title bar settings */
+static const char magicGridTitleBG[] = "#2d3748";          /* 标题栏背景色 */
+static const char magicGridTitleText[] = "#e2e8f0";        /* 标题栏文字颜色 */
+
 static const Layout layouts[] = {
     /* symbol     arrange function */
     { "[]=",      tile },    /* first entry is default */
