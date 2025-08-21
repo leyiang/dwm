@@ -85,6 +85,8 @@ static const int   insert_win_at_end = 0; /* 新窗口插入位置: 1=末尾, 0=
 /* magicgrid title bar settings */
 static const unsigned int magicgrid_title_height = 22;     /* 标题栏高度 */
 static const unsigned int magicgrid_title_padding = 8;     /* 左边距 */
+static const char magicGridTitleBG[] = "#2d3748";          /* 标题栏背景色 */
+static const char magicGridTitleText[] = "#e2e8f0";        /* 标题栏文字颜色 */
 
 static const Layout layouts[] = {
     /* symbol     arrange function */

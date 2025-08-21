@@ -3,10 +3,19 @@
 # Script to build and transfer dwm binary to QEMU VM
 # Usage: ./qemu.sh [config] [vm-ip] [username]
 
-CONFIG=${1:-"qemu"}            # Configuration: default, qemu (default to qemu)
+CONFIG=${1:-"qemu"}            # Configuration: default, qemu, log (default to qemu)
 VM_IP=${2:-"192.168.122.48"}   # Default QEMU/libvirt IP
 USERNAME=${3:-"test"}          # Default username
 PASSWORD="test"                # VM password
+
+# Handle log command
+if [ "$CONFIG" = "log" ]; then
+    echo "Fetching dwm log from VM..."
+    sshpass -p "$PASSWORD" scp $USERNAME@$VM_IP:/tmp/dwm.log ./dwm-qemu.log
+	sshpass -p "$PASSWORD" ssh $USERNAME@$VM_IP "echo '$PASSWORD' | sudo -S echo '' > /tmp/dwm.log"
+	nvim ./dwm-qemu.log
+    exit 0
+fi
 
 # Build dwm with specified configuration
 echo "Building dwm with '$CONFIG' configuration..."
@@ -19,7 +28,7 @@ case $CONFIG in
         ;;
     *)
         echo "Error: Unknown configuration '$CONFIG'"
-        echo "Available configurations: default, qemu"
+        echo "Available configurations: default, qemu, log"
         exit 1
         ;;
 esac
@@ -50,8 +59,12 @@ fi
 
 # Replace system dwm binary
 echo "Installing dwm to /usr/local/bin/..."
-sshpass -p "$PASSWORD" ssh $USERNAME@$VM_IP "echo '$PASSWORD' | sudo -S cp ~/dwm /usr/local/bin/dwm && echo '$PASSWORD' | sudo -S chmod +x /usr/local/bin/dwm"
+sshpass -p "$PASSWORD" ssh $USERNAME@$VM_IP "echo '$PASSWORD' | sudo -S rm /usr/local/bin/dwm && echo '$PASSWORD' | sudo -S cp ~/dwm /usr/local/bin/dwm && echo '$PASSWORD' | sudo -S chmod +x /usr/local/bin/dwm"
+
+# Restart display manager to apply changes
+echo "Restarting display manager..."
+sshpass -p "$PASSWORD" ssh $USERNAME@$VM_IP "echo '$PASSWORD' | sudo -S systemctl restart gdm3"
 
 echo "Transfer complete!"
 echo "SSH into VM: ssh $USERNAME@$VM_IP"
-echo "Run dwm: dwm (or ./dwm from home directory)"
+echo "dwm should now be available in the session selector"
