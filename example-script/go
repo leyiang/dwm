@@ -1,0 +1,56 @@
+#!/bin/bash
+# Quick workspace switcher
+
+if [ $# -eq 0 ]; then
+    echo "Usage: go <workspace>"
+    echo "Examples: go 1, go ws1, go b, go 1024"
+    exit 1
+fi
+
+workspace="$1"
+
+echo "DEBUG: Input workspace: '$workspace'"
+
+case "$workspace" in
+    [1-9]) 
+        value=$((1 << (workspace - 1)))
+        echo "DEBUG: Fixed tag $workspace -> value $value"
+        ;;
+    b|B) 
+        value=$((1 << 9))
+        echo "DEBUG: Special tag 'b' -> value $value"
+        ;;
+    ws[0-9]*)
+        num="${workspace#ws}"
+        echo "DEBUG: Dynamic workspace ws$num"
+        if [[ "$num" =~ ^[0-9]+$ ]]; then
+            value=$((1 << (num + 9)))
+            echo "DEBUG: ws$num -> bit $((num + 9)) -> value $value"
+        else
+            echo "ERROR: Invalid workspace number in '$workspace'"
+            exit 1
+        fi
+        ;;
+    [0-9]*)
+        value=$workspace
+        echo "DEBUG: Direct value $value"
+        ;;
+    *)
+        echo "ERROR: Invalid workspace format: '$workspace'"
+        exit 1
+        ;;
+esac
+
+echo "DEBUG: Sending command: view:$value"
+xprop -root -f _DWM_SCRIPT_COMMAND 8s -set _DWM_SCRIPT_COMMAND "view:$value"
+
+# Check if the command was processed
+sleep 0.2
+result=$(xprop -root _DWM_CURRENT_WORKSPACE 2>/dev/null | awk '{print $3}')
+echo "DEBUG: Current workspace after switch: $result"
+
+if [[ "$result" == "$value" ]]; then
+    echo "✓ Successfully switched to $workspace"
+else
+    echo "⚠ Switch may have failed. Expected: $value, Got: $result"
+fi

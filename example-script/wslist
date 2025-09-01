@@ -1,0 +1,35 @@
+#!/bin/bash
+# Simple list of all active workspaces
+
+# Get workspace info
+current_dynamic=$(xprop -root _DWM_CURRENT_WORKSPACE 2>/dev/null | awk '{print $3}')
+current_desktop=$(xprop -root _NET_CURRENT_DESKTOP 2>/dev/null | awk '{print $3}')
+active_workspaces=$(xprop -root _DWM_ACTIVE_WORKSPACES 2>/dev/null | awk '{print $3}')
+
+echo "All Workspaces:"
+
+# Show current fixed tag
+if [[ -n "$current_desktop" && "$current_desktop" =~ ^[0-9]+$ ]]; then
+    if [ "$current_desktop" -eq 9 ]; then
+        echo "* 󰒱 (current)"
+    else
+        echo "* $((current_desktop + 1)) (current)"
+    fi
+fi
+
+# Show active dynamic workspaces
+if [[ -n "$active_workspaces" && "$active_workspaces" =~ ^[0-9]+$ ]]; then
+    for i in {10..31}; do
+        if (( active_workspaces & (1 << i) )); then
+            ws_num=$((i - 9))
+            ws_value=$((1 << i))
+            
+            # Check if this is current
+            if [[ -n "$current_dynamic" && "$current_dynamic" =~ ^[0-9]+$ && "$current_dynamic" -eq "$ws_value" ]]; then
+                echo "* WS$ws_num (current)"
+            else
+                echo "  WS$ws_num"
+            fi
+        fi
+    done
+fi

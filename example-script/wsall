@@ -1,0 +1,62 @@
+#!/bin/bash
+# Display all workspaces status
+
+echo "=== All Workspaces Status ==="
+
+# Get current workspace info
+current_dynamic=$(xprop -root _DWM_CURRENT_WORKSPACE 2>/dev/null | awk '{print $3}')
+current_desktop=$(xprop -root _NET_CURRENT_DESKTOP 2>/dev/null | awk '{print $3}')
+active_workspaces=$(xprop -root _DWM_ACTIVE_WORKSPACES 2>/dev/null | awk '{print $3}')
+
+echo "Current Desktop: $current_desktop"
+echo "Current Dynamic: $current_dynamic"
+echo "Active Workspaces Bitmask: $active_workspaces"
+echo ""
+
+# Show fixed tags (0-9)
+echo "Fixed Tags:"
+for i in {0..9}; do
+    marker=" "
+    if [[ -n "$current_desktop" && "$current_desktop" =~ ^[0-9]+$ && "$current_desktop" -eq "$i" ]]; then
+        marker="*"  # Current tag
+    fi
+    
+    tag_name=$((i + 1))
+    if [ "$i" -eq 9 ]; then
+        tag_name="󰒱"
+    fi
+    
+    echo "  $marker Tag $tag_name"
+done
+
+echo ""
+
+# Show dynamic workspaces
+echo "Dynamic Workspaces:"
+if [[ -n "$active_workspaces" && "$active_workspaces" =~ ^[0-9]+$ ]]; then
+    found_any=false
+    for i in {10..31}; do
+        if (( active_workspaces & (1 << i) )); then
+            found_any=true
+            marker=" "
+            ws_num=$((i - 9))
+            ws_value=$((1 << i))
+            
+            # Check if this is the current dynamic workspace
+            if [[ -n "$current_dynamic" && "$current_dynamic" =~ ^[0-9]+$ && "$current_dynamic" -eq "$ws_value" ]]; then
+                marker="*"  # Current workspace
+            fi
+            
+            echo "  $marker WS$ws_num (bit $i, value $ws_value)"
+        fi
+    done
+    
+    if [ "$found_any" = false ]; then
+        echo "  No dynamic workspaces created"
+    fi
+else
+    echo "  No dynamic workspaces created"
+fi
+
+echo ""
+echo "Legend: * = current workspace"

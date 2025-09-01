@@ -1,0 +1,27 @@
+#!/bin/bash
+# Quick workspace display - shows current workspace
+
+# Check dynamic workspace first
+current=$(xprop -root _DWM_CURRENT_WORKSPACE 2>/dev/null | awk '{print $3}')
+
+if [[ -n "$current" && "$current" =~ ^[0-9]+$ ]]; then
+    # Dynamic workspace - find which bit is set
+    for i in {10..31}; do
+        if (( current & (1 << i) )); then
+            echo "WS$((i - 9))"
+            exit 0
+        fi
+    done
+fi
+
+# Fixed tag - use _NET_CURRENT_DESKTOP
+desktop=$(xprop -root _NET_CURRENT_DESKTOP 2>/dev/null | awk '{print $3}')
+if [[ -n "$desktop" && "$desktop" =~ ^[0-9]+$ ]]; then
+    if [ "$desktop" -eq 9 ]; then
+        echo "󰒱"
+    else
+        echo "$((desktop + 1))"
+    fi
+else
+    echo "?"
+fi

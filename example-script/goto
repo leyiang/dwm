@@ -1,0 +1,70 @@
+#!/bin/bash
+# Script to switch to a specific workspace
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <workspace>"
+    echo ""
+    echo "Examples:"
+    echo "  $0 1        # Go to tag 1"
+    echo "  $0 2        # Go to tag 2" 
+    echo "  $0 9        # Go to tag 9"
+    echo "  $0 b        # Go to tag 󰒱"
+    echo "  $0 ws1      # Go to dynamic workspace 1"
+    echo "  $0 ws2      # Go to dynamic workspace 2"
+    echo "  $0 1024     # Go to workspace with bitmask value 1024"
+    exit 1
+fi
+
+workspace="$1"
+
+# Function to switch using dwm script interface
+switch_to_workspace() {
+    local value=$1
+    xprop -root -f _DWM_SCRIPT_COMMAND 8s -set _DWM_SCRIPT_COMMAND "view:$value"
+    sleep 0.1
+    echo "Switched to workspace $value"
+}
+
+# Parse workspace argument
+case "$workspace" in
+    # Fixed tags 1-9
+    [1-9])
+        tag_value=$((1 << (workspace - 1)))
+        switch_to_workspace $tag_value
+        ;;
+    
+    # Special tag 'b' for 󰒱 (tag 10, bit 9)
+    b|B)
+        switch_to_workspace $((1 << 9))
+        ;;
+    
+    # Dynamic workspaces: ws1, ws2, etc.
+    ws[0-9]*)
+        ws_num="${workspace#ws}"
+        if [[ "$ws_num" =~ ^[0-9]+$ ]] && [ "$ws_num" -ge 1 ] && [ "$ws_num" -le 22 ]; then
+            bit_position=$((ws_num + 9))
+            ws_value=$((1 << bit_position))
+            switch_to_workspace $ws_value
+        else
+            echo "Error: Invalid workspace number. Use ws1-ws22"
+            exit 1
+        fi
+        ;;
+    
+    # Direct bitmask value
+    [0-9]*)
+        if [ "$workspace" -ge 1024 ]; then
+            switch_to_workspace $workspace
+        else
+            # Assume it's a tag number > 9
+            echo "Error: Invalid workspace. Use 1-9, b, ws1-ws22, or bitmask values >= 1024"
+            exit 1
+        fi
+        ;;
+    
+    *)
+        echo "Error: Invalid workspace format"
+        echo "Use: 1-9 (tags), b (special tag), ws1-ws22 (dynamic), or bitmask value"
+        exit 1
+        ;;
+esac

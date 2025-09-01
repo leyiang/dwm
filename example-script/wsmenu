@@ -1,0 +1,72 @@
+#!/bin/bash
+# Interactive workspace menu
+
+# Get active workspaces
+active_workspaces=$(xprop -root _DWM_ACTIVE_WORKSPACES 2>/dev/null | awk '{print $3}')
+current_dynamic=$(xprop -root _DWM_CURRENT_WORKSPACE 2>/dev/null | awk '{print $3}')
+current_desktop=$(xprop -root _NET_CURRENT_DESKTOP 2>/dev/null | awk '{print $3}')
+
+echo "=== Select Workspace ==="
+echo ""
+
+# Fixed tags
+echo "Fixed Tags:"
+for i in {1..9}; do
+    marker=" "
+    if [[ -n "$current_desktop" && "$current_desktop" =~ ^[0-9]+$ && "$current_desktop" -eq $((i-1)) ]]; then
+        marker="*"
+    fi
+    echo "  $i)$marker Tag $i"
+done
+
+marker=" "
+if [[ -n "$current_desktop" && "$current_desktop" -eq 9 ]]; then
+    marker="*"
+fi
+echo "  b)$marker Tag 󰒱"
+
+echo ""
+
+# Dynamic workspaces
+if [[ -n "$active_workspaces" && "$active_workspaces" =~ ^[0-9]+$ ]]; then
+    echo "Dynamic Workspaces:"
+    for i in {10..31}; do
+        if (( active_workspaces & (1 << i) )); then
+            ws_num=$((i - 9))
+            ws_value=$((1 << i))
+            marker=" "
+            
+            if [[ -n "$current_dynamic" && "$current_dynamic" -eq "$ws_value" ]]; then
+                marker="*"
+            fi
+            
+            echo "  w$ws_num)$marker WS$ws_num"
+        fi
+    done
+    echo ""
+fi
+
+echo "q) Quit"
+echo ""
+echo -n "Choose workspace: "
+
+read choice
+
+case "$choice" in
+    [1-9])
+        ./go "$choice"
+        ;;
+    b|B)
+        ./go b
+        ;;
+    w[0-9]*)
+        ws_num="${choice#w}"
+        ./go "ws$ws_num"
+        ;;
+    q|Q)
+        echo "Cancelled"
+        ;;
+    *)
+        echo "Invalid choice: $choice"
+        ;;
+esac
