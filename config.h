@@ -71,7 +71,7 @@ static const Rule rules[] = {
 	{ "Cursor",	  		  NULL , NULL,  		  0,         0,          0,           1,        -1 }, /* cursor */
 	{ "jetbrains-studio", NULL , NULL,	    	  0,         0,          0,           1,        -1 }, /* android studio */
 
-	{ NULL , 	  		  NULL , "dwm-float",  	  0,         1,          0,           0,        -1 }, /* title: dwm-float */
+	{ NULL , 	  		  NULL , "dwm-float",  	  0,         1,          0,           1,        -1 }, /* title: dwm-float */
 	
 };
 
