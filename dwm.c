@@ -63,6 +63,7 @@
 #define WIDTH(X)                ((X)->w + 2 * (X)->bw)
 #define HEIGHT(X)               ((X)->h + 2 * (X)->bw)
 #define TAGMASK                 ((1 << LENGTH(tags)) - 1)
+#define FULLTAGMASK             ((1UL << 32) - 1)  /* Full 32-bit mask for dynamic workspaces */
 #define TAGSLENGTH              (LENGTH(tags))
 #define TEXTW(X)                (drw_fontset_getwidth(drw, (X)) + lrpad)
 
@@ -286,6 +287,9 @@ static void togglefloating(const Arg *arg);
 static void togglefullscr(const Arg *arg);
 static void toggletag(const Arg *arg);
 static void jumpbetweentag(const Arg *arg);
+static void newworkspace(const Arg *arg);
+static void killworkspace(unsigned int tag);
+static void scriptevent(XEvent *e);
 static void toggleview(const Arg *arg);
 static void unfocus(Client *c, int setfocus);
 static void unmanage(Client *c, int destroyed);
@@ -359,6 +363,12 @@ static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root, wmcheckwin;
 static Client *globalhidden = NULL;  /* Global hidden window pointer */
+
+/* Dynamic workspace variables */
+static unsigned int dynamictags = 0;   /* Bitmask for dynamic workspace tracking */
+static Atom dwmcurrentws;              /* X11 atom for current workspace */
+static Atom dwmactivews;               /* X11 atom for active workspaces */
+static Atom dwmscriptcmd;              /* X11 atom for script commands */
 
 static xcb_connection_t *xcon;
 
@@ -1137,6 +1147,26 @@ drawbar(Monitor *m)
 		x += w;
 	}
 
+	/* Display current dynamic workspace if active */
+	if (m->tagset[m->seltags] >= (1 << LENGTH(tags))) {
+		char wstext[32];
+		unsigned int wsnum = 0;
+		
+		/* Find which bit is set to get workspace number */
+		for (int i = 10; i < 32; i++) {
+			if (m->tagset[m->seltags] & (1 << i)) {
+				wsnum = i - 9; /* Show as 1, 2, 3... instead of 10, 11, 12... */
+				break;
+			}
+		}
+		
+		snprintf(wstext, sizeof(wstext), "[WS%d]", wsnum);
+		w = TEXTW(wstext);
+		drw_setscheme(drw, scheme[SchemeTagsSel]);
+		drw_text(drw, x, 0, w, bh, lrpad / 2, wstext, 0);
+		x += w;
+	}
+
 	w = TEXTW(m->ltsymbol);
 	/* Use different colors for different layouts */
 	if (m->lt[m->sellt] == &layouts[2]) { /* monocle layout */
@@ -1534,6 +1564,7 @@ keypress(XEvent *e)
 
 	ev = &e->xkey;
 	keysym = XKeycodeToKeysym(dpy, (KeyCode)ev->keycode, 0);
+	
 	for (i = 0; i < LENGTH(keys); i++)
 		if (keysym == keys[i].keysym
 		&& CLEANMASK(keys[i].mod) == CLEANMASK(ev->state)
@@ -1623,6 +1654,16 @@ manage(Window w, XWindowAttributes *wa)
 	XMapWindow(dpy, c->win);
 	if (term)
 		swallow(term, c);
+		
+	/* Mark dynamic workspace as used when a window is placed there */
+	if (c->tags >= (1 << LENGTH(tags))) {
+		dynamictags |= c->tags;
+		/* Update active workspaces list */
+		long data = dynamictags;
+		XChangeProperty(dpy, root, dwmactivews, XA_CARDINAL, 32,
+		                PropModeReplace, (unsigned char *)&data, 1);
+	}
+	
 	focus(NULL);
 }
 
@@ -2024,6 +2065,8 @@ propertynotify(XEvent *e)
 
 	if ((ev->window == root) && (ev->atom == XA_WM_NAME))
 		updatestatus();
+	else if ((ev->window == root) && (ev->atom == dwmscriptcmd))
+		scriptevent(e);
 	else if (ev->state == PropertyDelete)
 		return; /* ignore */
 	else if ((c = wintoclient(ev->window))) {
@@ -2588,6 +2631,10 @@ setup(void)
 	netatom[NetCurrentDesktop] = XInternAtom(dpy, "_NET_CURRENT_DESKTOP", False);
 	netatom[NetDesktopNames] = XInternAtom(dpy, "_NET_DESKTOP_NAMES", False);
 	netatom[NetWMDesktop] = XInternAtom(dpy, "_NET_WM_DESKTOP", False);
+	/* init dwm workspace atoms */
+	dwmcurrentws = XInternAtom(dpy, "_DWM_CURRENT_WORKSPACE", False);
+	dwmactivews = XInternAtom(dpy, "_DWM_ACTIVE_WORKSPACES", False);
+	dwmscriptcmd = XInternAtom(dpy, "_DWM_SCRIPT_COMMAND", False);
 	xatom[Manager] = XInternAtom(dpy, "MANAGER", False);
 	xatom[Xembed] = XInternAtom(dpy, "_XEMBED", False);
 	xatom[XembedInfo] = XInternAtom(dpy, "_XEMBED_INFO", False);
@@ -2898,6 +2945,31 @@ unmanage(Client *c, int destroyed)
 		XSetErrorHandler(xerror);
 		XUngrabServer(dpy);
 	}
+	/* Clean up empty dynamic workspaces */
+	if (c->tags >= (1 << LENGTH(tags))) {
+		/* Check if this dynamic workspace still has any windows */
+		int has_windows = 0;
+		Client *check;
+		for (Monitor *mon = mons; mon; mon = mon->next) {
+			for (check = mon->clients; check; check = check->next) {
+				if (check->tags == c->tags) {
+					has_windows = 1;
+					break;
+				}
+			}
+			if (has_windows) break;
+		}
+		
+		if (!has_windows) {
+			/* No more windows in this dynamic workspace, mark as unused */
+			dynamictags &= ~c->tags;
+			/* Update active workspaces list */
+			long data = dynamictags;
+			XChangeProperty(dpy, root, dwmactivews, XA_CARDINAL, 32,
+			                PropModeReplace, (unsigned char *)&data, 1);
+		}
+	}
+
 	free(c);
 
 	if (!s) {
@@ -3316,23 +3388,135 @@ jumpbetweentag(const Arg *arg)
 }
 
 void
+newworkspace(const Arg *arg)
+{
+	unsigned int newtag = 0;
+	
+	/* Reset dynamictags if it seems corrupted (all 22 bits set) */
+	if (__builtin_popcount(dynamictags >> 10) >= 22) {
+		fprintf(stderr, "DEBUG: dynamictags corrupted, resetting\n");
+		dynamictags = 0;
+	}
+	
+	/* Find first unused dynamic tag (bits 10-31) */
+	for (int i = 10; i < 32; i++) {
+		unsigned int testbit = 1U << i;
+		if (!(dynamictags & testbit)) {
+			newtag = testbit;
+			/* Don't mark as used yet - only when a window is placed there */
+			break;
+		}
+	}
+	
+	if (newtag) {
+		/* Switch to new workspace */
+		view(&(Arg){.ui = newtag});
+		
+		/* Update X property for script access */
+		long data = newtag;
+		XChangeProperty(dpy, root, dwmcurrentws, XA_CARDINAL, 32, 
+		                PropModeReplace, (unsigned char *)&data, 1);
+		
+		/* Update active workspaces list (only workspaces with windows) */
+		data = dynamictags;
+		XChangeProperty(dpy, root, dwmactivews, XA_CARDINAL, 32,
+		                PropModeReplace, (unsigned char *)&data, 1);
+	}
+}
+
+void
+killworkspace(unsigned int tag)
+{
+	/* Only allow killing dynamic workspaces (bits 10-31) */
+	if (tag < (1 << 10))
+		return;
+	
+	/* Move all windows from this workspace to tag 1 */
+	Client *c;
+	for (Monitor *m = mons; m; m = m->next) {
+		for (c = m->clients; c; c = c->next) {
+			if (c->tags == tag) {
+				c->tags = 1;  /* Move to tag 1 */
+			}
+		}
+	}
+	
+	/* Mark as unused */
+	dynamictags &= ~tag;
+	
+	/* If currently in this workspace, switch to tag 1 */
+	if (selmon->tagset[selmon->seltags] == tag) {
+		view(&(Arg){.ui = 1});
+	}
+	
+	/* Update active workspaces list */
+	long data = dynamictags;
+	XChangeProperty(dpy, root, dwmactivews, XA_CARDINAL, 32,
+	                PropModeReplace, (unsigned char *)&data, 1);
+}
+
+void
+scriptevent(XEvent *e)
+{
+	char cmd[256];
+	XPropertyEvent *ev = &e->xproperty;
+	
+	/* Read command from root window property */
+	if (gettextprop(root, ev->atom, cmd, sizeof(cmd))) {
+		fprintf(stderr, "DEBUG: scriptevent received command: '%s'\n", cmd);
+		
+		if (strncmp(cmd, "view:", 5) == 0) {
+			/* Script wants to view a workspace */
+			unsigned int tag = strtoul(cmd + 5, NULL, 10);
+			fprintf(stderr, "DEBUG: parsed view command, tag=%u\n", tag);
+			if (tag > 0) {
+				fprintf(stderr, "DEBUG: calling view() with tag %u\n", tag);
+				view(&(Arg){.ui = tag});
+			} else {
+				fprintf(stderr, "DEBUG: invalid tag value %u, ignoring\n", tag);
+			}
+		} else if (strncmp(cmd, "kill:", 5) == 0) {
+			/* Script wants to kill a workspace */
+			unsigned int tag = strtoul(cmd + 5, NULL, 10);
+			fprintf(stderr, "DEBUG: parsed kill command, tag=%u\n", tag);
+			if (tag > 0) {
+				killworkspace(tag);
+			}
+		} else {
+			fprintf(stderr, "DEBUG: unknown command: '%s'\n", cmd);
+		}
+		
+		/* Clear the property after processing */
+		XDeleteProperty(dpy, root, ev->atom);
+	} else {
+		fprintf(stderr, "DEBUG: scriptevent failed to read property\n");
+	}
+}
+
+void
 view(const Arg *arg)
 {
 	int i;
 	unsigned int tmptag;
+	unsigned int mask = (arg->ui >= (1 << LENGTH(tags))) ? FULLTAGMASK : TAGMASK;
 
-	if ((arg->ui & TAGMASK) == selmon->tagset[selmon->seltags])
+	if ((arg->ui & mask) == selmon->tagset[selmon->seltags])
 		return;
 	selmon->seltags ^= 1; /* toggle sel tagset */
-	if (arg->ui & TAGMASK) {
-		selmon->tagset[selmon->seltags] = arg->ui & TAGMASK;
+	if (arg->ui & mask) {
+		selmon->tagset[selmon->seltags] = arg->ui & mask;
 		selmon->pertag->prevtag = selmon->pertag->curtag;
 
 		if (arg->ui == ~0)
 			selmon->pertag->curtag = 0;
 		else {
 			for (i = 0; !(arg->ui & 1 << i); i++) ;
-			selmon->pertag->curtag = i + 1;
+			/* For dynamic workspaces (bits 10+), use default pertag settings */
+			if (i >= LENGTH(tags)) {
+				selmon->pertag->curtag = 0;  /* Use default settings */
+			} else {
+				selmon->pertag->curtag = i + 1;
+			}
 		}
 	} else {
 		tmptag = selmon->pertag->prevtag;
@@ -3366,6 +3550,13 @@ view(const Arg *arg)
 	focus(NULL);
 	arrange(selmon);
 	updatecurrentdesktop();
+	
+	/* Update dynamic workspace properties */
+	if (arg->ui >= (1 << LENGTH(tags))) {
+		long data = arg->ui;
+		XChangeProperty(dpy, root, dwmcurrentws, XA_CARDINAL, 32, 
+		                PropModeReplace, (unsigned char *)&data, 1);
+	}
 }
 
 pid_t

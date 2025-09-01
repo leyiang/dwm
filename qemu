@@ -48,6 +48,14 @@ fi
 
 # Copy dwm binary
 sshpass -p "$PASSWORD" scp ./dwm $USERNAME@$VM_IP:~/dwm
+sshpass -p "$PASSWORD" scp ./ws $USERNAME@$VM_IP:~/ws
+sshpass -p "$PASSWORD" scp ./show_workspace.sh $USERNAME@$VM_IP:~/show_workspace.sh 
+sshpass -p "$PASSWORD" scp ./wslist $USERNAME@$VM_IP:~/wslist
+sshpass -p "$PASSWORD" scp ./wsall $USERNAME@$VM_IP:~/wsall
+
+sshpass -p "$PASSWORD" scp go  $USERNAME@$VM_IP:~/go
+sshpass -p "$PASSWORD" scp goto $USERNAME@$VM_IP:~/goto
+sshpass -p "$PASSWORD" scp wsmenu $USERNAME@$VM_IP:~/wsmenu
 
 # Copy config.h for reference
 sshpass -p "$PASSWORD" scp ./config.h $USERNAME@$VM_IP:~/config.h

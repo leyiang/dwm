@@ -170,6 +170,7 @@ static const Key keys[] = {
     { MODKEY,                       XK_f,      togglelayout,      {0} },
 
 	// 手动设置 layout, 用不到
+    { MODKEY,                       XK_t,      newworkspace,   {0} },
     // { MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
     // { MODKEY|ShiftMask,             XK_f,      setlayout,      {.v = &layouts[1]} },
     // { MODKEY,                       XK_p,      setlayout,      {.v = &layouts[2]} },
