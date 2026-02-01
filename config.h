@@ -71,8 +71,11 @@ static const Rule rules[] = {
 	{ "Cursor",	  		  NULL , NULL,  		  0,         0,          0,           1,        -1 }, /* cursor */
 	{ "jetbrains-studio", NULL , NULL,	    	  0,         0,          0,           1,        -1 }, /* android studio */
 
+	{ "wemeetapp",        NULL , NULL,             0,         1,          0,           1,        -1 }, /* wemeet - floating */
+    { "wechat",           NULL , NULL,             0,         1,          0,           1,        -1 }, /* wechat - floating */
+
 	{ NULL , 	  		  NULL , "dwm-float",  	  0,         1,          0,           1,        -1 }, /* title: dwm-float */
-	
+
 };
 
 /* layout(s) */
@@ -127,6 +130,10 @@ static const Key keys[] = {
     { MODKEY,                       XK_k,      focusstack,     {.i = -1 } },
     { MODKEY,                       XK_h,      hide,           {0} },
 
+    /* Adjust master area size (mfact) */
+    { MODKEY|ShiftMask,             XK_equal,  setmfact,       {.f = +0.05} },  /* MOD + SHIFT + = ('+') */
+    { MODKEY|ShiftMask,             XK_minus,  setmfact,       {.f = -0.05} },  /* MOD + SHIFT + - ('_') */
+
     // { MODKEY,                       XK_b,      togglebar,      {0} },
     // { MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },
     // { MODKEY,                       XK_d,      incnmaster,     {.i = -1 } },
@@ -141,7 +148,7 @@ static const Key keys[] = {
     { ShiftMask , XF86XK_AudioMute        , spawn , SHCMD("vol default") },
     { ShiftMask , XF86XK_AudioMute        , spawn , SHCMD("vol default") },
     { 0         , XK_Pause                , spawn , SHCMD("vol pause") },
-    { 0         , XF86XK_PrintScreenDWM   , spawn , SHCMD("capt") },
+    // { 0         , XF86XK_PrintScreenDWM   , spawn , SHCMD("capt") },
 
     { 0         , XF86XK_AudioNext   , spawn , SHCMD("vol next") },
     { 0         , XF86XK_AudioPrev   , spawn , SHCMD("vol prev") },
