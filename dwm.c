@@ -594,6 +594,11 @@ swallow(Client *p, Client *c)
 	if (c->noswallow && !swallowfloating && c->isfloating)
 		return;
 
+	/* The swallowed client leaves the managed client list, so its separate
+	 * titlebar window must not survive as an orphan on the root window.
+	 */
+	destroytitlebar(c);
+
 	detach(c);
 	detachstack(c);
 
@@ -1744,7 +1749,6 @@ createtitlebar(Client *c)
                                c->w + 2 * c->bw, title_height, 0, DefaultDepth(dpy, screen),
                                CopyFromParent, DefaultVisual(dpy, screen),
                                CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWEventMask, &wa);
-    
 }
 
 void
