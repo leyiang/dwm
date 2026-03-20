@@ -49,7 +49,7 @@ build() {
 
 deploy() {
     build
-    remote_scp_to "$REPO_ROOT/dwm" "$REMOTE_DWM_TMP"
+    remote_scp_to "$REPO_ROOT/dwm-qemu" "$REMOTE_DWM_TMP"
     remote_ssh "set -eu;
         echo '$VM_PASS' | sudo -S cp /usr/local/bin/dwm /usr/local/bin/dwm.backup;
         echo '$VM_PASS' | sudo -S install -m 0755 '$REMOTE_DWM_TMP' /usr/local/bin/dwm;

@@ -8,3 +8,4 @@ ranger/plugins/
 **/__pycache__
 dwm-qemu.log
 vm-artifacts
+dwm-qemu

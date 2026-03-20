@@ -20,7 +20,7 @@ dwm: ${OBJ}
 	${CC} -o $@ ${OBJ} ${LDFLAGS}
 
 clean:
-	rm -f dwm ${OBJ} dwm-${VERSION}.tar.gz
+	rm -f dwm dwm-qemu ${OBJ} dwm-${VERSION}.tar.gz
 
 dist: clean
 	mkdir -p dwm-${VERSION}
@@ -43,12 +43,16 @@ uninstall:
 		${DESTDIR}${MANPREFIX}/man1/dwm.1
 
 qemu: clean
-	@if [ -f config.h ]; then cp config.h config.h.backup; fi
-	cp config-qemu.h config.h
+	@had_config=0; \
+	if [ -f config.h ]; then cp config.h config.h.backup; had_config=1; fi; \
+	cp config-qemu.h config.h; \
+	${MAKE} dwm; \
+	cp -f dwm dwm-qemu; \
+	if [ "$$had_config" -eq 1 ]; then mv config.h.backup config.h; else rm -f config.h; fi; \
+	rm -f dwm ${OBJ}; \
 	${MAKE} dwm
-	@if [ -f config.h.backup ]; then mv config.h.backup config.h; fi
 
 clean-config:
-	@if [ -f config.h.backup ]; then mv config.h.backup config.h; fi
+	@if [ -f config.h.backup ]; then mv config.h.backup config.h; else rm -f config.h; fi
 
 .PHONY: all clean dist install uninstall qemu clean-config

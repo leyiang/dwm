@@ -18,6 +18,15 @@ necessary as root):
 
     make clean install
 
+In this repository, `make install` installs the default `dwm` binary.
+For VM debugging, use:
+
+    make qemu
+
+This builds a separate `dwm-qemu` binary for the QEMU/libvirt test VM
+and then restores the normal `dwm` build, so `make install` does not
+accidentally install the VM-specific configuration.
+
 
 Running dwm
 -----------
@@ -46,3 +55,17 @@ Configuration
 -------------
 The configuration of dwm is done by creating a custom config.h
 and (re)compiling the source code.
+
+
+VM Debugging
+-----------
+Use the scripts in `tests/` for the VM workflow instead of the old
+repo-root helper scripts.
+
+Common commands:
+
+    ./tests/vm-debug.sh build
+    ./tests/vm-debug.sh deploy
+    ./tests/vm-debug.sh status
+    ./tests/vm-debug.sh log
+    ./tests/vm-debug.sh repro
