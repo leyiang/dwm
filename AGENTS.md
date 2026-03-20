@@ -9,15 +9,19 @@
 - 默认用户名：`test`
 - 默认密码：`test`
 
-推荐直接使用仓库里的脚本，而不是手写一长串 ssh/scp 命令：
+推荐直接使用 `tests/` 目录下的脚本，而不是手写一长串 ssh/scp 命令：
 
-- 部署当前 `qemu` 配置版本到虚机：`./vm-debug.sh deploy`
-- 给虚机安装复现和取证工具：`./vm-debug.sh setup-tools`
-- 查看虚机状态、`dwm` 进程、日志、工具是否安装：`./vm-debug.sh status`
-- 拉取当前 `dwm` 日志：`./vm-debug.sh log`
-- 自动复现 `magicgrid`/`ffplay` 路径并回传产物：`./vm-debug.sh repro`
+- 部署当前 `qemu` 配置版本到虚机：`./tests/vm-debug.sh deploy`
+- 给虚机安装复现和取证工具：`./tests/vm-debug.sh setup-tools`
+- 查看虚机状态、`dwm` 进程、日志、工具是否安装：`./tests/vm-debug.sh status`
+- 拉取当前 `dwm` 日志：`./tests/vm-debug.sh log`
+- 自动复现 `magicgrid`/`ffplay` 路径并回传产物：`./tests/vm-debug.sh repro`
 
-`./vm-debug.sh repro` 会把以下产物拉回本地目录 `vm-artifacts/`：
+本次 bug 的远端复现脚本名为：
+
+- `tests/debug-magicgrid-titlebar-remote.sh`
+
+`./tests/vm-debug.sh repro` 会把以下产物拉回本地目录 `vm-artifacts/`：
 
 - 复现前截图
 - 复现后截图
@@ -35,8 +39,30 @@
 例如：
 
 ```sh
-VM_IP=192.168.122.50 VM_USER=test VM_PASS=test ./vm-debug.sh status
+VM_IP=192.168.122.50 VM_USER=test VM_PASS=test ./tests/vm-debug.sh status
 ```
+
+## 为什么 `repro` 仍然要约 9.33 秒
+
+当前优化后的 `./tests/vm-debug.sh repro` 实测大约 `9.33s`，主要耗时不是 `dwm` 本身慢，而是调试流程本身就包含固定等待和远端交互。
+
+大致构成：
+
+- 切到 `magicgrid` 后，短轮询等待约 `2s`
+- 启动 `ffplay` 后，等待窗口出现，最坏约 `4s`
+- 切回别的 workspace 后，再等约 `2s`
+- 1 次上传脚本、1 次远端执行、1 次下载 tar 包，SSH/SCP 往返加起来约 `1s`
+- 截图、`xwininfo`、`wmctrl`、打包 tar 还会再占一点时间
+
+也就是说，`9.33s` 的主要成本是：
+
+- 约 `8s` 的复现稳定性等待
+- 约 `1s` 的 VM 连接和取证开销
+
+为了让它比早期版本更快，脚本已经做了两件事：
+
+- 远端产物改成打包成一个 tar 后一次性拉回，不再为每个文件单独做 `ssh/scp`
+- `ffplay` 启动等待改成短轮询，不再固定死等 `4s` 以上
 
 ## 这次 magicgrid 标题栏 bug 的真实根因
 
