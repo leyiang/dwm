@@ -1,0 +1,62 @@
+#!/bin/bash
+# Script to change workspace by index number
+# Usage: ch <workspace_index>
+# Example: ch 10 => goto ws-1
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <workspace_index>"
+    echo ""
+    echo "Examples:"
+    echo "  $0 0        # Go to tag 1 (first tag)"
+    echo "  $0 1        # Go to tag 2"
+    echo "  $0 9        # Go to tag b (special tag)"
+    echo "  $0 10       # Go to ws-1 (first dynamic workspace)"
+    echo "  $0 11       # Go to ws-2 (second dynamic workspace)"
+    exit 1
+fi
+
+workspace_index="$1"
+
+# Validate input is a number
+if ! [[ "$workspace_index" =~ ^[0-9]+$ ]]; then
+    echo "Error: Workspace index must be a number"
+    exit 1
+fi
+
+# Function to switch using dwm script interface
+switch_to_workspace() {
+    local value=$1
+    xprop -root -f _DWM_SCRIPT_COMMAND 8s -set _DWM_SCRIPT_COMMAND "view:$value"
+    sleep 0.1
+}
+
+# Convert workspace index to appropriate dwm command
+case "$workspace_index" in
+    # Fixed tags 1-9 (index 0-8)
+    [0-8])
+        tag_number=$((workspace_index + 1))
+        tag_value=$((1 << workspace_index))
+        switch_to_workspace $tag_value
+        echo "Switched to tag $tag_number (index $workspace_index)"
+        ;;
+    
+    # Special tag 'b' (index 9)
+    9)
+        switch_to_workspace $((1 << 9))
+        echo "Switched to tag b (index 9)"
+        ;;
+    
+    # Dynamic workspaces (index 10+)
+    *)
+        if [ "$workspace_index" -ge 10 ] && [ "$workspace_index" -le 31 ]; then
+            ws_number=$((workspace_index - 9))
+            bit_position="$workspace_index"
+            ws_value=$((1 << bit_position))
+            switch_to_workspace $ws_value
+            echo "Switched to ws-$ws_number (index $workspace_index, bitmask $ws_value)"
+        else
+            echo "Error: Workspace index out of range. Use 0-31"
+            exit 1
+        fi
+        ;;
+esac

@@ -75,6 +75,7 @@ static const Rule rules[] = {
     { "wechat",           NULL , NULL,             0,         1,          0,           1,        -1 }, /* wechat - floating */
 
 	{ NULL , 	  		  NULL , "dwm-float",  	  0,         1,          0,           1,        -1 }, /* title: dwm-float */
+	{ "Chrome",	  		  NULL , NULL,  		  0,         0,          0,           1,        -1 }, /* cursor */
 
 };
 
@@ -131,8 +132,8 @@ static const Key keys[] = {
     { MODKEY,                       XK_h,      hide,           {0} },
 
     /* Adjust master area size (mfact) */
-    { MODKEY|ShiftMask,             XK_equal,  setmfact,       {.f = +0.05} },  /* MOD + SHIFT + = ('+') */
-    { MODKEY|ShiftMask,             XK_minus,  setmfact,       {.f = -0.05} },  /* MOD + SHIFT + - ('_') */
+    { MODKEY|ShiftMask,             XK_equal,  smartresize,    {.f = +0.05} },  /* MOD + SHIFT + = ('+') */
+    { MODKEY|ShiftMask,             XK_minus,  smartresize,    {.f = -0.05} },  /* MOD + SHIFT + - ('_') */
 
     // { MODKEY,                       XK_b,      togglebar,      {0} },
     // { MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },

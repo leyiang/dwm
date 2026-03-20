@@ -272,6 +272,7 @@ static void setfullscreen(Client *c, int fullscreen);
 static void setlayout(const Arg *arg);
 static void togglelayout(const Arg *arg);
 static void setmfact(const Arg *arg);
+static void smartresize(const Arg *arg);
 static void setnumdesktops(void);
 static void setup(void);
 static void setviewport(void);
@@ -431,6 +432,15 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 {
 	int baseismin;
 	Monitor *m = c->mon;
+	int orig_w = *w, orig_h = *h;
+	FILE *logfile = fopen("/tmp/dwm-smartresize.log", "a");
+
+	if (logfile) {
+		fprintf(logfile, "[applysizehints] Input: %dx%d, interact=%d\n", orig_w, orig_h, interact);
+		fprintf(logfile, "[applysizehints] Hints: basew=%d baseh=%d incw=%d inch=%d minw=%d minh=%d maxw=%d maxh=%d mina=%f maxa=%f\n",
+			c->basew, c->baseh, c->incw, c->inch, c->minw, c->minh, c->maxw, c->maxh, c->mina, c->maxa);
+		fflush(logfile);
+	}
 
 	/* set minimum possible */
 	*w = MAX(1, *w);
@@ -491,6 +501,13 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 		if (c->maxh)
 			*h = MIN(*h, c->maxh);
 	}
+
+	if (logfile) {
+		fprintf(logfile, "[applysizehints] Output: %dx%d (changed: %s)\n", *w, *h,
+			(*x != c->x || *y != c->y || *w != c->w || *h != c->h) ? "YES" : "NO");
+		fclose(logfile);
+	}
+
 	return *x != c->x || *y != c->y || *w != c->w || *h != c->h;
 }
 
@@ -2577,6 +2594,82 @@ setmfact(const Arg *arg)
 		return;
 	selmon->mfact = selmon->pertag->mfacts[selmon->pertag->curtag] = f;
 	arrange(selmon);
+}
+
+void
+smartresize(const Arg *arg)
+{
+	Client *c;
+	int nw, nh;
+	float scale;
+	FILE *logfile = fopen("/tmp/dwm-smartresize.log", "a");
+
+	if (logfile) {
+		fprintf(logfile, "[smartresize] Function called with arg->f = %f\n", arg->f);
+		fflush(logfile);
+	}
+
+	if (!selmon->sel) {
+		if (logfile) {
+			fprintf(logfile, "[smartresize] No selected window, returning\n");
+			fclose(logfile);
+		}
+		return;
+	}
+
+	c = selmon->sel;
+
+	if (logfile) {
+		fprintf(logfile, "[smartresize] Window: %s, isfloating: %d, current size: %dx%d\n",
+			c->name, c->isfloating, c->w, c->h);
+		fflush(logfile);
+	}
+
+	/* If floating window, resize proportionally */
+	if (c->isfloating) {
+		scale = 1.0 + arg->f;
+		nw = (int)(c->w * scale);
+		nh = (int)(c->h * scale);
+
+		if (logfile) {
+			fprintf(logfile, "[smartresize] Floating window - scale: %f, new size: %dx%d\n",
+				scale, nw, nh);
+			fflush(logfile);
+		}
+
+		/* Prevent window from becoming too small or too large */
+		if (nw < 50 || nh < 50 || nw > selmon->ww || nh > selmon->wh) {
+			if (logfile) {
+				fprintf(logfile, "[smartresize] Size out of bounds (monitor: %dx%d), returning\n",
+					selmon->ww, selmon->wh);
+				fclose(logfile);
+			}
+			return;
+		}
+
+		/* Resize without moving the window */
+		if (logfile) {
+			fprintf(logfile, "[smartresize] Calling resize with pos: (%d,%d), size: %dx%d\n",
+				c->x, c->y, nw, nh);
+			fflush(logfile);
+		}
+		resize(c, c->x, c->y, nw, nh, 1);
+		if (logfile) {
+			fprintf(logfile, "[smartresize] After resize, window size: %dx%d\n", c->w, c->h);
+			fflush(logfile);
+		}
+	}
+	/* If tiled window, adjust mfact */
+	else {
+		if (logfile) {
+			fprintf(logfile, "[smartresize] Tiled window - calling setmfact\n");
+			fflush(logfile);
+		}
+		setmfact(arg);
+	}
+
+	if (logfile)
+		fclose(logfile);
 }
 
 void
