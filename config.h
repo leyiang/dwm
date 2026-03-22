@@ -19,6 +19,16 @@ static const int showbar                 = 1;    /* 0 means no bar */
 static const int topbar                  = 1;    /* 0 means bottom bar */
 static const char *fonts[]               = { "monospace:size = 12", "yiang_nerd_font:size:14", "Noto Sans CJK JP:size = 10", "FiraCode Nerd Font:size:20" };
 static const char dmenufont[]            = "FiraCode-16";
+static const int enable_focus_fake_opacity      = 1;    /* 1 enables fake opacity focus overlay */
+static const unsigned int focuspulse_duration_ms = 300; /* focus overlay lifetime */
+static const unsigned int focuspulse_frame_ms    = 16;  /* animation tick */
+static const double focuspulse_opacity           = 0.22; /* initial overlay opacity */
+static const unsigned int focuspulse_fake_opacity_pattern = 1; /* 0=stripes, 1=grid */
+static const unsigned int focuspulse_fake_opacity_step = 0; /* stripe gap; 0 uses line-count/default mode */
+static const unsigned int focuspulse_fake_opacity_lines = 6; /* number of fake opacity stripes */
+static const unsigned int focuspulse_fake_opacity_line_height = 100; /* base stripe height */
+
+
 static const char col_gray1[]            = "#222222";
 static const char col_gray2[]            = "#444444";
 static const char col_gray3[]            = "#bbbbbb";

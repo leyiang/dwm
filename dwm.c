@@ -27,13 +27,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
+#include <sys/select.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <X11/cursorfont.h>
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
+#include <X11/extensions/shape.h>
 #include <X11/Xlib.h>
 #include <X11/Xproto.h>
 #include <X11/Xutil.h>
@@ -49,6 +52,7 @@
 #endif /* __OpenBSD */
 
 #include "drw.h"
+#include "focus_overlay.h"
 #include "util.h"
 
 /* macros */
@@ -204,6 +208,7 @@ static void attachstack(Client *c);
 static void buttonpress(XEvent *e);
 static void checkotherwm(void);
 static void cleanup(void);
+static void cleanupfocusoverlay(void);
 static void cleanupmon(Monitor *mon);
 static void clientmessage(XEvent *e);
 static void configure(Client *c);
@@ -221,6 +226,12 @@ static void enternotify(XEvent *e);
 static void expose(XEvent *e);
 static void focus(Client *c);
 static void focusin(XEvent *e);
+static FocusOverlayConfig focusoverlayconfig(void);
+static int focusoverlayenabled(void);
+static int focusoverlaytimeoutms(void);
+static int focusoverlayvisiblecount(Monitor *m);
+static int isfocusoverlayfullscreenmode(Monitor *m, Client *c);
+static int shouldstartfocusoverlay(Client *oldsel, Client *c);
 static void focusmon(const Arg *arg);
 static void focusstack(const Arg *arg);
 static Atom getatomprop(Client *c, Atom prop);
@@ -231,6 +242,7 @@ static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void grabbuttons(Client *c, int focused);
 static void grabkeys(void);
 static void hide(const Arg *arg);
+static void hidefocusoverlay(void);
 static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
 static void killclient(const Arg *arg);
@@ -252,6 +264,7 @@ static void propertynotify(XEvent *e);
 static void quit(const Arg *arg);
 static Monitor *recttomon(int x, int y, int w, int h);
 static void removesystrayicon(Client *i);
+static void raisefocusoverlay(void);
 static void resize(Client *c, int x, int y, int w, int h, int interact);
 static void resizebarwin(Monitor *m);
 static void resizeclient(Client *c, int x, int y, int w, int h);
@@ -306,6 +319,8 @@ static void updatestatus(void);
 static void updatesystray(void);
 static void updatesystrayicongeom(Client *i, int w, int h);
 static void updatesystrayiconstate(Client *i, XPropertyEvent *ev);
+static void startfocusoverlay(Client *c, const char *reason);
+static void updatefocusoverlay(void);
 static void updatetitle(Client *c);
 static void updatewindowtype(Client *c);
 static void updatewmhints(Client *c);
@@ -364,6 +379,8 @@ static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root, wmcheckwin;
 static Client *globalhidden = NULL;  /* Global hidden window pointer */
+static int focusoverlayshapesupported = 0;
+static FocusOverlay focusoverlay = {0};
 
 /* Dynamic workspace variables */
 static unsigned int dynamictags = 0;   /* Bitmask for dynamic workspace tracking */
@@ -709,6 +726,7 @@ cleanup(void)
 
 	view(&a);
 	selmon->lt[selmon->sellt] = &foo;
+	cleanupfocusoverlay();
 	for (m = mons; m; m = m->next)
 		while (m->stack)
 			unmanage(m->stack, 0);
@@ -732,6 +750,13 @@ cleanup(void)
 	XSync(dpy, False);
 	XSetInputFocus(dpy, PointerRoot, RevertToPointerRoot, CurrentTime);
 	XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
+}
+
+void
+cleanupfocusoverlay(void)
+{
+	hidefocusoverlay();
+	focusoverlay_cleanup_state(dpy, &focusoverlay);
 }
 
 void
@@ -1280,6 +1305,8 @@ expose(XEvent *e)
 void
 focus(Client *c)
 {
+	Client *oldsel = selmon->sel;
+
 	if (!c || !ISVISIBLE(c))
 		for (c = selmon->stack; c && !ISVISIBLE(c); c = c->snext);
 	if (selmon->sel && selmon->sel != c)
@@ -1297,10 +1324,17 @@ focus(Client *c)
 		XSetWindowBorder(dpy, c->win, border_color);
 		setfocus(c);
 	} else {
+		hidefocusoverlay();
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 		XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
 	}
 	selmon->sel = c;
+	if (c && c != oldsel) {
+		if (shouldstartfocusoverlay(oldsel, c))
+			startfocusoverlay(c, "focus");
+		else
+			hidefocusoverlay();
+	}
 	drawbars();
 }
 
@@ -1312,6 +1346,90 @@ focusin(XEvent *e)
 
 	if (selmon->sel && ev->window != selmon->sel->win)
 		setfocus(selmon->sel);
+}
+
+FocusOverlayConfig
+focusoverlayconfig(void)
+{
+	FocusOverlayConfig config = {
+		.enable_fake_opacity = enable_focus_fake_opacity,
+		.shape_supported = focusoverlayshapesupported,
+		.duration_ms = focuspulse_duration_ms,
+		.frame_ms = focuspulse_frame_ms,
+		.fake_opacity_pattern = focuspulse_fake_opacity_pattern,
+		.fake_opacity_step = focuspulse_fake_opacity_step,
+		.fake_opacity_lines = focuspulse_fake_opacity_lines,
+		.fake_opacity_line_height = focuspulse_fake_opacity_line_height,
+		.opacity = focuspulse_opacity,
+	};
+
+	return config;
+}
+
+int
+focusoverlayenabled(void)
+{
+	FocusOverlayConfig config = focusoverlayconfig();
+
+	return focusoverlay_is_enabled(&config);
+}
+
+int
+focusoverlaytimeoutms(void)
+{
+	FocusOverlayConfig config = focusoverlayconfig();
+
+	return focusoverlay_timeout_ms(&focusoverlay, &config);
+}
+
+int
+focusoverlayvisiblecount(Monitor *m)
+{
+	int count = 0;
+	Client *c;
+
+	if (!m)
+		return 0;
+	for (c = m->clients; c; c = c->next)
+		if (ISVISIBLE(c))
+			count++;
+	return count;
+}
+
+int
+isfocusoverlayfullscreenmode(Monitor *m, Client *c)
+{
+	if ((m && m->lt[m->sellt]->arrange == monocle) || (c && c->isfullscreen))
+		return 1;
+	return 0;
+}
+
+int
+shouldstartfocusoverlay(Client *oldsel, Client *c)
+{
+	int visible_count;
+
+	if (!c || !focusoverlayenabled())
+		return 0;
+	if (isfocusoverlayfullscreenmode(c->mon, c) || (oldsel && isfocusoverlayfullscreenmode(oldsel->mon, oldsel))) {
+		fprintf(stderr,
+			"focuspulse: skip fullscreen-like old=%d new=%d win=0x%lx name=%s\n",
+			oldsel ? isfocusoverlayfullscreenmode(oldsel->mon, oldsel) : 0,
+			isfocusoverlayfullscreenmode(c->mon, c),
+			(unsigned long)c->win,
+			c->name);
+		return 0;
+	}
+	visible_count = focusoverlayvisiblecount(c->mon);
+	if (visible_count <= 1) {
+		fprintf(stderr,
+			"focuspulse: skip single-window count=%d win=0x%lx name=%s\n",
+			visible_count,
+			(unsigned long)c->win,
+			c->name);
+		return 0;
+	}
+	return 1;
 }
 
 void
@@ -1531,6 +1649,14 @@ grabbuttons(Client *c, int focused)
 }
 
 void
+hidefocusoverlay(void)
+{
+	FocusOverlayConfig config = focusoverlayconfig();
+
+	focusoverlay_hide_state(dpy, &config, &focusoverlay);
+}
+
+void
 grabkeys(void)
 {
 	updatenumlockmask();
@@ -1615,6 +1741,7 @@ void
 manage(Window w, XWindowAttributes *wa)
 {
 	Client *c, *t = NULL, *term = NULL;
+	Client *oldsel;
 	Window trans = None;
 	XWindowChanges wc;
 
@@ -1669,6 +1796,7 @@ manage(Window w, XWindowAttributes *wa)
 	XMoveResizeWindow(dpy, c->win, c->x + 2 * sw, c->y, c->w, c->h); /* some windows require this */
 	setclientstate(c, NormalState);
 	setwindowdesktop(c);  /* 设置窗口的桌面属性 */
+	oldsel = selmon->sel;
 	if (c->mon == selmon)
 		unfocus(selmon->sel, 0);
 	c->mon->sel = c;
@@ -1687,6 +1815,8 @@ manage(Window w, XWindowAttributes *wa)
 	}
 	
 	focus(NULL);
+	if (selmon->sel == c && shouldstartfocusoverlay(oldsel, c))
+		startfocusoverlay(c, "manage");
 }
 
 void
@@ -2153,6 +2283,48 @@ removesystrayicon(Client *i)
 }
 
 void
+raisefocusoverlay(void)
+{
+	focusoverlay_raise_state(dpy, &focusoverlay);
+}
+
+void
+startfocusoverlay(Client *c, const char *reason)
+{
+	FocusOverlayConfig config = focusoverlayconfig();
+
+	if (!c)
+		return;
+
+	focusoverlay_start_state(dpy, &focusoverlay, &config, c, c->win, c->name, reason,
+		c->x, c->y, WIDTH(c), HEIGHT(c));
+	updatefocusoverlay();
+}
+
+void
+updatefocusoverlay(void)
+{
+	FocusOverlayConfig config = focusoverlayconfig();
+	Client *overlay_client = (Client *)focusoverlay.client_ref;
+
+	if (!focusoverlayenabled())
+		return;
+
+	if (!overlay_client || !ISVISIBLE(overlay_client)) {
+		hidefocusoverlay();
+		return;
+	}
+
+	focusoverlay_update_state(dpy, screen, root, &focusoverlay, &config,
+		scheme[SchemeSel][ColBorder].pixel,
+		overlay_client,
+		overlay_client->x,
+		overlay_client->y,
+		WIDTH(overlay_client),
+		HEIGHT(overlay_client));
+}
+
+void
 resize(Client *c, int x, int y, int w, int h, int interact)
 {
 	if (applysizehints(c, &x, &y, &w, &h, interact))
@@ -2193,6 +2365,8 @@ resizeclient(Client *c, int x, int y, int w, int h)
 
 	XConfigureWindow(dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
 	configure(c);
+	if (focusoverlay.active && focusoverlay.client_ref == c)
+		updatefocusoverlay();
 	XSync(dpy, False);
 }
 
@@ -2287,6 +2461,7 @@ restack(Monitor *m)
 				wc.sibling = c->win;
 			}
 	}
+	raisefocusoverlay();
 	XSync(dpy, False);
 	while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
 }
@@ -2295,11 +2470,47 @@ void
 run(void)
 {
 	XEvent ev;
+	fd_set fds;
+	int timeout_ms, xfd, ready;
+	struct timeval tv;
+
 	/* main event loop */
 	XSync(dpy, False);
-	while (running && !XNextEvent(dpy, &ev))
-		if (handler[ev.type])
-			handler[ev.type](&ev); /* call handler */
+	xfd = ConnectionNumber(dpy);
+	while (running) {
+		while (running && XPending(dpy)) {
+			XNextEvent(dpy, &ev);
+			if (handler[ev.type])
+				handler[ev.type](&ev);
+		}
+		if (!running)
+			break;
+
+		timeout_ms = focusoverlaytimeoutms();
+		if (timeout_ms < 0) {
+			XNextEvent(dpy, &ev);
+			if (handler[ev.type])
+				handler[ev.type](&ev);
+			continue;
+		}
+		if (timeout_ms == 0) {
+			updatefocusoverlay();
+			continue;
+		}
+
+		FD_ZERO(&fds);
+		FD_SET(xfd, &fds);
+		tv.tv_sec = timeout_ms / 1000;
+		tv.tv_usec = (timeout_ms % 1000) * 1000;
+		ready = select(xfd + 1, &fds, NULL, NULL, &tv);
+		if (ready < 0) {
+			if (errno == EINTR)
+				continue;
+			break;
+		}
+		if (ready == 0)
+			updatefocusoverlay();
+	}
 }
 
 void
@@ -2500,6 +2711,7 @@ setfocus(Client *c)
 void
 setfullscreen(Client *c, int fullscreen)
 {
+	hidefocusoverlay();
 	if (fullscreen && !c->isfullscreen) {
 		XChangeProperty(dpy, c->win, netatom[NetWMState], XA_ATOM, 32,
 			PropModeReplace, (unsigned char*)&netatom[NetWMFullscreen], 1);
@@ -2739,6 +2951,12 @@ setup(void)
 	cursor[CurNormal] = drw_cur_create(drw, XC_left_ptr);
 	cursor[CurResize] = drw_cur_create(drw, XC_sizing);
 	cursor[CurMove] = drw_cur_create(drw, XC_fleur);
+	{
+		int shape_event_base, shape_error_base;
+		focusoverlayshapesupported = XShapeQueryExtension(dpy, &shape_event_base, &shape_error_base);
+		if (!focusoverlayshapesupported)
+			fprintf(stderr, "focuspulse: XShape extension unavailable, disabling fake opacity overlay\n");
+	}
 	/* init appearance */
 	scheme = ecalloc(LENGTH(colors) + 1, sizeof(Clr *));
 	scheme[LENGTH(colors)] = drw_scm_create(drw, colors[0], 3);
@@ -3006,6 +3224,8 @@ unmanage(Client *c, int destroyed)
 	Monitor *m = c->mon;
 	XWindowChanges wc;
 	
+	if (focusoverlay.client_ref == c)
+		hidefocusoverlay();
 	destroytitlebar(c);
 
 	if (c->swallowing) {
