@@ -10,11 +10,13 @@ VM_USER="${VM_USER:-test}"
 VM_PASS="${VM_PASS:-test}"
 REMOTE_DWM_TMP="/home/$VM_USER/dwm.new"
 REMOTE_REPRO_TMP="/home/$VM_USER/debug-magicgrid-titlebar-remote.sh"
+REMOTE_LAYOUT_CHECK_TMP="/home/$VM_USER/debug-workspace-layout-remote.sh"
 REMOTE_ARTIFACT_TAR="/tmp/dwm-repro-artifacts.tar"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$REPO_ROOT/vm-artifacts}"
+BUILD_LOG="${BUILD_LOG:-/tmp/dwm-vm-build.log}"
 
 usage() {
-    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro}"
+    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|layout-check}"
     exit 1
 }
 
@@ -43,7 +45,12 @@ remote_scp_from() {
 build() {
     (
         cd "$REPO_ROOT"
-        make qemu
+        if make qemu >"$BUILD_LOG" 2>&1; then
+            tail -n 100 "$BUILD_LOG"
+        else
+            tail -n 100 "$BUILD_LOG"
+            exit 1
+        fi
     )
 }
 
@@ -96,6 +103,11 @@ repro() {
     echo "Artifacts saved to $ARTIFACT_DIR"
 }
 
+layout_check() {
+    remote_scp_to "$SCRIPT_DIR/debug-workspace-layout-remote.sh" "$REMOTE_LAYOUT_CHECK_TMP"
+    remote_ssh "chmod +x '$REMOTE_LAYOUT_CHECK_TMP' && '$REMOTE_LAYOUT_CHECK_TMP'"
+}
+
 case "${1:-}" in
     build) build ;;
     deploy) deploy ;;
@@ -103,5 +115,6 @@ case "${1:-}" in
     status) status ;;
     log) log ;;
     repro) repro ;;
+    layout-check) layout_check ;;
     *) usage ;;
 esac

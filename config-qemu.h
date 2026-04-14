@@ -63,11 +63,6 @@ static const char *colors[][3]      = {
 
 static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "󰒱" };
 
-/* Default layouts for specific tags (tag index, layout index) */
-static const int tag_default_layouts[][2] = {
-	{ 9, 3 },  /* tag 'b' (index 9) uses magic grid (layouts[3]) */
-};
-
 static const Rule rules[] = {
 	/* class     instance  title           tags mask  isfloating  isterminal  noswallow  monitor */
 	{ "Gimp",     		  NULL , NULL ,           0,         1,          0,           0,        -1 },
@@ -102,6 +97,16 @@ static const Layout layouts[] = {
     { "><>",      NULL },    /* no layout function means floating behavior */
     { "[M]",      monocle },
     { "\U000f0758",       magicgrid },
+};
+
+/*
+ * Force a layout whenever this exact workspace view is entered.
+ * Configured workspaces are reset to the layout below on every entry.
+ * Unconfigured workspaces keep their normal pertag layout history.
+ * tagmask uses dwm's bitmask form: 1 << 0 is tag 1, 1 << 9 is tag 10 ('b').
+ */
+static const TagViewLayoutRule tag_view_layout_policies[] = {
+	{ .tagmask = 1 << 9, .layout = &layouts[3] },
 };
 
 /* key definitions */

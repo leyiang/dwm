@@ -156,6 +156,11 @@ typedef struct {
 	void (*arrange)(Monitor *);
 } Layout;
 
+typedef struct {
+	unsigned int tagmask;
+	const Layout *layout;
+} TagViewLayoutRule;
+
 typedef struct Pertag Pertag;
 struct Monitor {
 	char ltsymbol[16];
@@ -282,6 +287,7 @@ static void setdesktopnames(void);
 static void setwindowdesktop(Client *c);
 static void setfocus(Client *c);
 static void setfullscreen(Client *c, int fullscreen);
+static void applyviewlayoutpolicy(Monitor *m);
 static void setlayout(const Arg *arg);
 static void togglelayout(const Arg *arg);
 static void setmfact(const Arg *arg);
@@ -3811,6 +3817,24 @@ scriptevent(XEvent *e)
 }
 
 void
+applyviewlayoutpolicy(Monitor *m)
+{
+	unsigned int viewmask;
+	size_t i;
+
+	viewmask = m->tagset[m->seltags];
+	for (i = 0; i < LENGTH(tag_view_layout_policies); i++) {
+		if (tag_view_layout_policies[i].tagmask != viewmask)
+			continue;
+
+		m->lt[m->sellt] = m->pertag->ltidxs[m->pertag->curtag][m->sellt] =
+			tag_view_layout_policies[i].layout;
+		strncpy(m->ltsymbol, m->lt[m->sellt]->symbol, sizeof m->ltsymbol);
+		break;
+	}
+}
+
+void
 view(const Arg *arg)
 {
 	int i;
@@ -3846,20 +3870,7 @@ view(const Arg *arg)
 	selmon->sellt = selmon->pertag->sellts[selmon->pertag->curtag];
 	selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt];
 	selmon->lt[selmon->sellt^1] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt^1];
-
-	/* 
-	 * 问题：原先检查 == &layouts[0] 会导致每次切换tag时都重置布局，覆盖用户手动选择
-	 * 解决：只在tag无窗口时设置默认布局，认为无窗口的tag尚未被用户使用过
-	 * 这样可以尊重用户的布局选择，避免强制覆盖已配置的布局
-	 */
-	for (int i = 0; i < sizeof(tag_default_layouts) / sizeof(tag_default_layouts[0]); i++) {
-		if (tag_default_layouts[i][0] == selmon->pertag->curtag - 1 && 
-		    !selmon->clients) { /* 只在tag无窗口时设置默认布局 */
-			selmon->lt[selmon->sellt] = &layouts[tag_default_layouts[i][1]];
-			selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt] = &layouts[tag_default_layouts[i][1]];
-			break;
-		}
-	}
+	applyviewlayoutpolicy(selmon);
 
 	if (selmon->showbar != selmon->pertag->showbars[selmon->pertag->curtag])
 		togglebar(NULL);
