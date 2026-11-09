@@ -76,6 +76,23 @@ Meta 指 Super / Windows 键，Alt 指普通 Alt 键。
 以及原有移动和右键缩放；前后截图保存到 `vm-artifacts/`。
 
 
+临时解除窗口最小尺寸限制
+------------------------
+如果应用声明的最小尺寸过大，可以运行以下工具，再点击目标窗口：
+
+    python3 tools/xwin-minsize.py
+
+默认将最小尺寸改为 1 × 1，也支持指定尺寸：
+
+    python3 tools/xwin-minsize.py 320 240
+
+依赖 xwininfo 和 python-xlib（Ubuntu/Debian：x11-utils、python3-xlib）。
+工具会清除基础尺寸限制并保留其他尺寸提示；不会直接调整窗口大小。
+无需重新编译或重启 dwm，执行后再手动拖动缩小即可。
+Ctrl+C 可取消选窗。修改仅作用于当前窗口，重开窗口或应用重新设置提示后
+可能恢复；缩小后应用内容可能被裁切。
+
+
 VM Debugging
 -----------
 Use the scripts in `tests/` for the VM workflow instead of the old
