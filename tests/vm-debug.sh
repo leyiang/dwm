@@ -16,7 +16,7 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-$REPO_ROOT/vm-artifacts}"
 BUILD_LOG="${BUILD_LOG:-/tmp/dwm-vm-build.log}"
 
 usage() {
-    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|layout-check|background-check}"
+    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|layout-check|background-check|resize-check}"
     exit 1
 }
 
@@ -115,6 +115,14 @@ background_check() {
     remote_ssh "DISPLAY=:0 XAUTHORITY=/run/user/\$(id -u)/gdm/Xauthority python3 '/home/$VM_USER/dwm-background/tests/background-workspace.py'"
 }
 
+resize_check() {
+    remote_scp_to "$SCRIPT_DIR/resize-drag.py" "/home/$VM_USER/dwm-resize-check.py"
+    remote_ssh "DISPLAY=:0 XAUTHORITY=/run/user/\$(id -u)/gdm/Xauthority python3 '/home/$VM_USER/dwm-resize-check.py'"
+    mkdir -p "$ARTIFACT_DIR"
+    remote_scp_from /tmp/dwm-resize-before.png "$ARTIFACT_DIR/dwm-resize-before.png"
+    remote_scp_from /tmp/dwm-resize-after.png "$ARTIFACT_DIR/dwm-resize-after.png"
+}
+
 case "${1:-}" in
     build) build ;;
     deploy) deploy ;;
@@ -124,5 +132,6 @@ case "${1:-}" in
     repro) repro ;;
     layout-check) layout_check ;;
     background-check) background_check ;;
+    resize-check) resize_check ;;
     *) usage ;;
 esac

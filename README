@@ -57,6 +57,25 @@ The configuration of dwm is done by creating a custom config.h
 and (re)compiling the source code.
 
 
+浮动窗口大小调整
+----------------
+Meta 指 Super / Windows 键，Alt 指普通 Alt 键。
+
+- Meta + Alt + 左键拖动：只调整浮动窗口大小。从窗口内部任意位置开始，
+  向右 / 下拖动放大，向左 / 上拖动缩小；保持左上角位置，不跳转光标。
+  触摸板可按住左键拖动，或使用系统已启用的轻触拖动手势。
+  平铺窗口和全屏窗口不响应这个缩放手势。
+- Meta + 左键拖动：原有移动窗口操作。
+- Meta + 右键拖动：原有从右下角缩放的操作。
+- 默认宿主机配置还支持 Meta + Shift + = 放大、Meta + Shift + - 缩小，
+  浮动窗口每次约缩放 5%；平铺窗口则调整主区域比例。
+
+修改后需重新构建、安装，并重启 dwm 才能生效。
+在测试 VM 验证：先运行 `./tests/vm-debug.sh deploy`，再运行
+`./tests/vm-debug.sh resize-check`。检查浮动缩放、光标位置、平铺 / 全屏保护，
+以及原有移动和右键缩放；前后截图保存到 `vm-artifacts/`。
+
+
 VM Debugging
 -----------
 Use the scripts in `tests/` for the VM workflow instead of the old
