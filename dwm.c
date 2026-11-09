@@ -420,6 +420,8 @@ applyrules(Client *c)
 	const Rule *r;
 	Monitor *m;
 	XClassHint ch = { NULL, NULL };
+	char *tagend;
+	unsigned long backgroundtag;
 
 	/* rule matching */
 	c->isfloating = 0;
@@ -441,6 +443,15 @@ applyrules(Client *c)
 			for (m = mons; m && m->num != r->monitor; m = m->next);
 			if (m)
 				c->mon = m;
+		}
+	}
+	/* A nested X server has independent input, even while its host is off-screen. */
+	if (!strcmp(class, "Xephyr") && !strncmp(instance, "dwm-background-", 15)) {
+		backgroundtag = strtoul(instance + 15, &tagend, 10);
+		if (*tagend == '\0' && backgroundtag >= 1 && backgroundtag <= LENGTH(tags)) {
+			c->tags = 1U << (backgroundtag - 1);
+			c->isfloating = 1;
+			c->noswallow = 1;
 		}
 	}
 	if (ch.res_class)
@@ -1803,9 +1814,10 @@ manage(Window w, XWindowAttributes *wa)
 	setclientstate(c, NormalState);
 	setwindowdesktop(c);  /* 设置窗口的桌面属性 */
 	oldsel = selmon->sel;
-	if (c->mon == selmon)
+	if (c->mon == selmon && ISVISIBLE(c))
 		unfocus(selmon->sel, 0);
-	c->mon->sel = c;
+	if (ISVISIBLE(c))
+		c->mon->sel = c;
 	arrange(c->mon);
 	XMapWindow(dpy, c->win);
 	if (term)
@@ -1820,7 +1832,8 @@ manage(Window w, XWindowAttributes *wa)
 		                PropModeReplace, (unsigned char *)&data, 1);
 	}
 	
-	focus(NULL);
+	if (ISVISIBLE(c))
+		focus(NULL);
 	if (selmon->sel == c && shouldstartfocusoverlay(oldsel, c))
 		startfocusoverlay(c, "manage");
 }

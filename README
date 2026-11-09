@@ -69,3 +69,55 @@ Common commands:
     ./tests/vm-debug.sh status
     ./tests/vm-debug.sh log
     ./tests/vm-debug.sh repro
+    ./tests/vm-debug.sh background-check
+
+
+后台 workspace 操作（实验功能）
+-------------------------------
+目标：在另一个标签页打开应用，后台点击、输入和截图，同时保持当前
+标签页、活动窗口、键盘焦点和鼠标位置不变。
+
+运行本分支的 dwm 后，从当前 X 会话启动：
+
+    python3 tools/background-session.py --tag 9 -- alacritty
+
+`--tag` 使用从 1 开始的编号，支持当前配置的 1–10；选择一个当前没有
+显示的标签页。依赖 Python 3、Xephyr、xauth、xdpyinfo、dbus-run-session。
+默认画布为 1024x768，可以通过 `--screen 1280x720` 修改。
+
+脚本启动独立的 Xephyr X server，并将它的外层窗口直接分配到指定标签页。
+例如 instance 为 `dwm-background-9`、class 为 `Xephyr` 的窗口会进入标签 9，
+保持浮动并禁用 swallow。未显示的新窗口不会替换当前窗口的选择和焦点。
+脚本使用单独的 Xauthority cookie、禁用 TCP，并为应用启动独立 D-Bus 会话。
+
+启动时会打印连接信息，例如：
+
+    DISPLAY=:100 XAUTHORITY=/tmp/dwm-background-xxxx/Xauthority
+
+在另一个终端使用实际打印的值运行自动化；所有输入命令都必须指向这个
+DISPLAY，而不是外层 dwm 的 DISPLAY。例如：
+
+    env DISPLAY=:100 XAUTHORITY=/tmp/dwm-background-xxxx/Xauthority xdotool mousemove 200 100 click 1
+    env DISPLAY=:100 XAUTHORITY=/tmp/dwm-background-xxxx/Xauthority xdotool type 'background input'
+    env DISPLAY=:100 XAUTHORITY=/tmp/dwm-background-xxxx/Xauthority scrot /tmp/background.png
+
+坐标以嵌套会话的屏幕为准。即使外层窗口被 dwm 移到屏幕外，嵌套会话也
+可以继续处理普通 XTEST 鼠标/键盘输入并截图。切到目标标签页可以查看它。
+应用退出或脚本收到 Ctrl+C/SIGTERM 后，会清理应用进程组、Xephyr 和认证文件。
+
+适用范围：应用必须在这个新会话里启动；已有普通窗口不能直接搬进去。
+外层 dwm 管理的是一个 Xephyr 窗口，内部应用共享嵌套会话的画布，默认没有
+内部窗口管理器。多窗口应用如果需要内部窗口布局，可自行在会话中启动 WM。
+这不是对现有任意后台窗口增加通用的定向点击支持。
+
+VM 验证：
+
+    ./tests/vm-debug.sh setup-tools
+    ./tests/vm-debug.sh deploy
+    ./tests/vm-debug.sh background-check
+
+`deploy` 只安装到测试 VM，并重启 VM 内的图形会话；不会安装到宿主机。
+`background-check` 默认验证标签 9：启动前台 GTK 输入框，打开后台会话，
+执行三次后台输入和真实 GTK 按钮点击，同时向前台输入文字，再关闭会话。测试持续采样外层
+桌面、活动窗口、输入焦点和指针状态，并检查前台仍能继续输入。
+VM 中也可以用 `PROBE_TAG=2` 或 `PROBE_TAG=10` 运行测试脚本验证其他标签。

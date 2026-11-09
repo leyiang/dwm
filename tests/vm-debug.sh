@@ -16,7 +16,7 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-$REPO_ROOT/vm-artifacts}"
 BUILD_LOG="${BUILD_LOG:-/tmp/dwm-vm-build.log}"
 
 usage() {
-    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|layout-check}"
+    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|layout-check|background-check}"
     exit 1
 }
 
@@ -66,7 +66,7 @@ deploy() {
 
 setup_tools() {
     remote_ssh "echo '$VM_PASS' | sudo -S apt-get update"
-    remote_ssh "echo '$VM_PASS' | sudo -S apt-get install -y ffmpeg xdotool wmctrl scrot x11-utils"
+    remote_ssh "echo '$VM_PASS' | sudo -S apt-get install -y ffmpeg xdotool wmctrl scrot x11-utils xserver-xephyr xauth dbus-daemon python3-gi gir1.2-gtk-3.0"
 }
 
 status() {
@@ -108,6 +108,13 @@ layout_check() {
     remote_ssh "chmod +x '$REMOTE_LAYOUT_CHECK_TMP' && '$REMOTE_LAYOUT_CHECK_TMP'"
 }
 
+background_check() {
+    remote_ssh "mkdir -p '/home/$VM_USER/dwm-background/tools' '/home/$VM_USER/dwm-background/tests'"
+    remote_scp_to "$REPO_ROOT/tools/background-session.py" "/home/$VM_USER/dwm-background/tools/background-session.py"
+    remote_scp_to "$SCRIPT_DIR/background-workspace.py" "/home/$VM_USER/dwm-background/tests/background-workspace.py"
+    remote_ssh "DISPLAY=:0 XAUTHORITY=/run/user/\$(id -u)/gdm/Xauthority python3 '/home/$VM_USER/dwm-background/tests/background-workspace.py'"
+}
+
 case "${1:-}" in
     build) build ;;
     deploy) deploy ;;
@@ -116,5 +123,6 @@ case "${1:-}" in
     log) log ;;
     repro) repro ;;
     layout-check) layout_check ;;
+    background-check) background_check ;;
     *) usage ;;
 esac
