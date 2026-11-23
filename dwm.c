@@ -252,6 +252,9 @@ static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
 static void killclient(const Arg *arg);
 static void magicgrid(Monitor *m);
+static int titlebarheight(void);
+static int clientouterwidth(Client *c);
+static int tryalloccolor(Clr *dest, const char *clrname);
 static void drawmagicgridtitle(Client *c, int x, int y, int w, int h);
 static void createtitlebar(Client *c);
 static void drawtitlebar(Client *c);
@@ -332,6 +335,7 @@ static void updatewindowtype(Client *c);
 static void updatewmhints(Client *c);
 static void view(const Arg *arg);
 static Client *wintoclient(Window w);
+static Client *wintoclienttitle(Window w);
 static Monitor *wintomon(Window w);
 static Client *wintosystrayicon(Window w);
 static int xerror(Display *dpy, XErrorEvent *ee);
@@ -380,6 +384,7 @@ static Atom wmatom[WMLast], netatom[NetLast], xatom[XLast];
 static int running = 1;
 static Cur *cursor[CurLast];
 static Clr **scheme;
+static Clr *magicgridtitlescheme = NULL;
 static Display *dpy;
 static Drw *drw;
 static Monitor *mons, *selmon;
@@ -466,15 +471,6 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 {
 	int baseismin;
 	Monitor *m = c->mon;
-	int orig_w = *w, orig_h = *h;
-	FILE *logfile = fopen("/tmp/dwm-smartresize.log", "a");
-
-	if (logfile) {
-		fprintf(logfile, "[applysizehints] Input: %dx%d, interact=%d\n", orig_w, orig_h, interact);
-		fprintf(logfile, "[applysizehints] Hints: basew=%d baseh=%d incw=%d inch=%d minw=%d minh=%d maxw=%d maxh=%d mina=%f maxa=%f\n",
-			c->basew, c->baseh, c->incw, c->inch, c->minw, c->minh, c->maxw, c->maxh, c->mina, c->maxa);
-		fflush(logfile);
-	}
 
 	/* set minimum possible */
 	*w = MAX(1, *w);
@@ -536,29 +532,19 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 			*h = MIN(*h, c->maxh);
 	}
 
-	if (logfile) {
-		fprintf(logfile, "[applysizehints] Output: %dx%d (changed: %s)\n", *w, *h,
-			(*x != c->x || *y != c->y || *w != c->w || *h != c->h) ? "YES" : "NO");
-		fclose(logfile);
-	}
-
 	return *x != c->x || *y != c->y || *w != c->w || *h != c->h;
 }
 
 void
 arrange(Monitor *m)
 {
-	if (m) {
-		fprintf(stderr, "arrange: before showhide m->hidden=%p\n", (void*)m->hidden);
+	if (m)
 		showhide(m->stack);
-		fprintf(stderr, "arrange: after showhide m->hidden=%p\n", (void*)m->hidden);
-	}
 	else for (m = mons; m; m = m->next)
 		showhide(m->stack);
 	if (m) {
 		arrangemon(m);
 		restack(m);
-		fprintf(stderr, "arrange: after restack m->hidden=%p\n", (void*)m->hidden);
 	} else for (m = mons; m; m = m->next)
 		arrangemon(m);
 }
@@ -567,6 +553,8 @@ void
 arrangemon(Monitor *m)
 {
 	strncpy(m->ltsymbol, m->lt[m->sellt]->symbol, sizeof m->ltsymbol);
+	if (m->lt[m->sellt]->arrange != magicgrid)
+		hidetitlebars(m);
 	if (m->lt[m->sellt]->arrange)
 		m->lt[m->sellt]->arrange(m);
 }
@@ -622,11 +610,17 @@ attachstack(Client *c)
 void
 swallow(Client *p, Client *c)
 {
-
 	if (c->noswallow || c->isterminal)
 		return;
-	if (c->noswallow && !swallowfloating && c->isfloating)
+	if (!swallowfloating && c->isfloating)
 		return;
+
+	if (focusoverlay.client_ref == c)
+		hidefocusoverlay();
+	if (globalhidden == c) {
+		c->ishidden = 0;
+		globalhidden = NULL;
+	}
 
 	/* The swallowed client leaves the managed client list, so its separate
 	 * titlebar window must not survive as an orphan on the root window.
@@ -646,7 +640,10 @@ swallow(Client *p, Client *c)
 	p->win = c->win;
 	c->win = w;
 	updatetitle(p);
-	XMoveResizeWindow(dpy, p->win, p->x, p->y, p->w, p->h);
+	if (p->ishidden)
+		XMoveResizeWindow(dpy, p->win, -9999, p->y, p->w, p->h);
+	else
+		XMoveResizeWindow(dpy, p->win, p->x, p->y, p->w, p->h);
 	arrange(p->mon);
 	configure(p);
 	updateclientlist();
@@ -655,9 +652,16 @@ swallow(Client *p, Client *c)
 void
 unswallow(Client *c)
 {
-	c->win = c->swallowing->win;
+	Client *swallowed = c->swallowing;
 
-	free(c->swallowing);
+	if (focusoverlay.client_ref == swallowed)
+		hidefocusoverlay();
+	if (globalhidden == swallowed)
+		globalhidden = NULL;
+
+	c->win = swallowed->win;
+
+	free(swallowed);
 	c->swallowing = NULL;
 
 	/* unfullscreen the client */
@@ -665,10 +669,14 @@ unswallow(Client *c)
 	updatetitle(c);
 	arrange(c->mon);
 	XMapWindow(dpy, c->win);
-	XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
+	if (c->ishidden)
+		XMoveResizeWindow(dpy, c->win, -9999, c->y, c->w, c->h);
+	else
+		XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
 	setclientstate(c, NormalState);
 	focus(NULL);
 	arrange(c->mon);
+	updateclientlist();
 }
 
 void
@@ -712,8 +720,6 @@ buttonpress(XEvent *e)
 		restack(selmon);
 		XAllowEvents(dpy, ReplayPointer, CurrentTime);
 		click = ClkClientWin;
-	} else if ((c = swallowingclient(ev->window))) {
-		unmanage(c->swallowing, 1);
 	}
 
 	for (i = 0; i < LENGTH(buttons); i++)
@@ -751,10 +757,11 @@ cleanup(void)
 	while (mons)
 		cleanupmon(mons);
 
-	if (showsystray) {
+	if (showsystray && systray) {
 		XUnmapWindow(dpy, systray->win);
 		XDestroyWindow(dpy, systray->win);
 		free(systray);
+		systray = NULL;
 	}
 
 	for (i = 0; i < CurLast; i++)
@@ -762,6 +769,8 @@ cleanup(void)
 	for (i = 0; i < LENGTH(colors) + 1; i++)
 		free(scheme[i]);
 	free(scheme);
+	free(magicgridtitlescheme);
+	magicgridtitlescheme = NULL;
 	XDestroyWindow(dpy, wmcheckwin);
 	drw_free(drw);
 	XSync(dpy, False);
@@ -789,6 +798,7 @@ cleanupmon(Monitor *mon)
 	}
 	XUnmapWindow(dpy, mon->barwin);
 	XDestroyWindow(dpy, mon->barwin);
+	free(mon->pertag);
 	free(mon);
 }
 
@@ -800,7 +810,7 @@ clientmessage(XEvent *e)
 	XClientMessageEvent *cme = &e->xclient;
 	Client *c = wintoclient(cme->window);
 
-	if (showsystray && cme->window == systray->win && cme->message_type == netatom[NetSystemTrayOP]) {
+	if (showsystray && systray && cme->window == systray->win && cme->message_type == netatom[NetSystemTrayOP]) {
 		/* add systray icons */
 		if (cme->data.l[1] == SYSTEM_TRAY_REQUEST_DOCK) {
 			if (!(c = (Client *)calloc(1, sizeof(Client))))
@@ -834,11 +844,11 @@ clientmessage(XEvent *e)
 			/* use parents background color */
 			swa.background_pixel  = scheme[SchemeNorm][ColBg].pixel;
 			XChangeWindowAttributes(dpy, c->win, CWBackPixel, &swa);
-			sendevent(c->win, netatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_EMBEDDED_NOTIFY, 0 , systray->win, XEMBED_EMBEDDED_VERSION);
+			sendevent(c->win, xatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_EMBEDDED_NOTIFY, 0 , systray->win, XEMBED_EMBEDDED_VERSION);
 			/* FIXME not sure if I have to send these events, too */
-			sendevent(c->win, netatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_FOCUS_IN, 0 , systray->win, XEMBED_EMBEDDED_VERSION);
-			sendevent(c->win, netatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_WINDOW_ACTIVATE, 0 , systray->win, XEMBED_EMBEDDED_VERSION);
-			sendevent(c->win, netatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_MODALITY_ON, 0 , systray->win, XEMBED_EMBEDDED_VERSION);
+			sendevent(c->win, xatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_FOCUS_IN, 0 , systray->win, XEMBED_EMBEDDED_VERSION);
+			sendevent(c->win, xatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_WINDOW_ACTIVATE, 0 , systray->win, XEMBED_EMBEDDED_VERSION);
+			sendevent(c->win, xatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_MODALITY_ON, 0 , systray->win, XEMBED_EMBEDDED_VERSION);
 			XSync(dpy, False);
 			resizebarwin(selmon);
 			updatesystray();
@@ -901,7 +911,7 @@ configurenotify(XEvent *e)
 		sw = ev->width;
 		sh = ev->height;
 		if (updategeom() || dirty) {
-			drw_resize(drw, sw, bh);
+			drw_resize(drw, sw, MAX(bh, titlebarheight()));
 			updatebars();
 			for (m = mons; m; m = m->next) {
 				for (c = m->clients; c; c = c->next)
@@ -1007,6 +1017,8 @@ destroynotify(XEvent *e)
 
 	if ((c = wintoclient(ev->window)))
 		unmanage(c, 1);
+	else if ((c = swallowingclient(ev->window)))
+		unmanage(c->swallowing, 1);
 	else if ((c = wintosystrayicon(ev->window))) {
 		removesystrayicon(c);
 		resizebarwin(selmon);
@@ -1053,46 +1065,57 @@ dirtomon(int dir)
 }
 
 int
+tryalloccolor(Clr *dest, const char *clrname)
+{
+	Clr tmp;
+
+	if (!drw || !dest || !clrname)
+		return 0;
+	if (!XftColorAllocName(drw->dpy, DefaultVisual(drw->dpy, drw->screen),
+	                       DefaultColormap(drw->dpy, drw->screen),
+	                       clrname, &tmp))
+		return 0;
+	*dest = tmp;
+	return 1;
+}
+
+int
 drawstatusbar(Monitor *m, int bh, char* stext) {
-	int ret, i, w, x, len, trayWidth = 0;
-	short isCode = 0;
+	int ret, w, x, len, trayWidth = 0;
 	char *text;
 	char *p;
+	char *cur, *caret, *end;
 
-	len = strlen(stext) + 1 ;
-	if (!(text = (char*) malloc(sizeof(char)*len)))
+	len = strlen(stext) + 1;
+	if (!(text = (char*) malloc(sizeof(char) * len)))
 		die("malloc");
 	p = text;
 	memcpy(text, stext, len);
 
 	/* compute width of the status text */
 	w = 0;
-	i = -1;
-	while (text[++i]) {
-		if (text[i] == '^') {
-			if (!isCode) {
-				isCode = 1;
-				text[i] = '\0';
-				w += TEXTW(text) - lrpad;
-				text[i] = '^';
-				if (text[++i] == 'f')
-					w += atoi(text + ++i);
-			} else {
-				isCode = 0;
-				text = text + i + 1;
-				i = -1;
+	cur = text;
+	while ((caret = strchr(cur, '^')) != NULL) {
+		end = strchr(caret + 1, '^');
+		if (!end)
+			break;
+		*caret = '\0';
+		w += TEXTW(cur) - lrpad;
+		*caret = '^';
+		for (char *code = caret + 1; code < end; code++) {
+			if (*code == 'f') {
+				char *next = NULL;
+				w += (int)strtol(code + 1, &next, 10);
+				if (next && next > code + 1 && next <= end)
+					code = next - 1;
 			}
 		}
+		cur = end + 1;
 	}
-	if (!isCode)
-		w += TEXTW(text) - lrpad;
-	else
-		isCode = 0;
-	text = p;
-
+	w += TEXTW(cur) - lrpad;
 	w += 2; /* 1px padding on both sides */
-    
-    trayWidth = getsystraywidth();
+
+	trayWidth = getsystraywidth();
 	ret = x = m->ww - w - trayWidth;
 
 	drw_setscheme(drw, scheme[LENGTH(colors)]);
@@ -1102,58 +1125,55 @@ drawstatusbar(Monitor *m, int bh, char* stext) {
 	x++;
 
 	/* process status text */
-	i = -1;
-	while (text[++i]) {
-		if (text[i] == '^' && !isCode) {
-			isCode = 1;
+	cur = text;
+	while ((caret = strchr(cur, '^')) != NULL) {
+		end = strchr(caret + 1, '^');
+		if (!end)
+			break;
+		*caret = '\0';
+		w = TEXTW(cur) - lrpad;
+		drw_text(drw, x, 0, w, bh, 0, cur, 0);
+		x += w;
+		*caret = '^';
 
-			text[i] = '\0';
-			w = TEXTW(text) - lrpad;
-			drw_text(drw, x, 0, w, bh, 0, text, 0);
-
-			x += w;
-
-			/* process code */
-			while (text[++i] != '^') {
-				if (text[i] == 'c') {
-					char buf[8];
-					memcpy(buf, (char*)text+i+1, 7);
-					buf[7] = '\0';
-					drw_clr_create(drw, &drw->scheme[ColFg], buf);
-					i += 7;
-				} else if (text[i] == 'b') {
-					char buf[8];
-					memcpy(buf, (char*)text+i+1, 7);
-					buf[7] = '\0';
-					drw_clr_create(drw, &drw->scheme[ColBg], buf);
-					i += 7;
-				} else if (text[i] == 'd') {
-					drw->scheme[ColFg] = scheme[SchemeNorm][ColFg];
-					drw->scheme[ColBg] = scheme[SchemeNorm][ColBg];
-				} else if (text[i] == 'r') {
-					int rx = atoi(text + ++i);
-					while (text[++i] != ',');
-					int ry = atoi(text + ++i);
-					while (text[++i] != ',');
-					int rw = atoi(text + ++i);
-					while (text[++i] != ',');
-					int rh = atoi(text + ++i);
-
-					drw_rect(drw, rx + x, ry, rw, rh, 1, 0);
-				} else if (text[i] == 'f') {
-					x += atoi(text + ++i);
+		for (char *code = caret + 1; code < end; code++) {
+			if (*code == 'c' && code + 7 < end) {
+				char buf[8];
+				memcpy(buf, code + 1, 7);
+				buf[7] = '\0';
+				tryalloccolor(&drw->scheme[ColFg], buf);
+				code += 7;
+			} else if (*code == 'b' && code + 7 < end) {
+				char buf[8];
+				memcpy(buf, code + 1, 7);
+				buf[7] = '\0';
+				tryalloccolor(&drw->scheme[ColBg], buf);
+				code += 7;
+			} else if (*code == 'd') {
+				drw->scheme[ColFg] = scheme[SchemeNorm][ColFg];
+				drw->scheme[ColBg] = scheme[SchemeNorm][ColBg];
+			} else if (*code == 'r') {
+				int rx, ry, rw, rh, consumed = 0;
+				*end = '\0';
+				if (sscanf(code + 1, "%d,%d,%d,%d%n", &rx, &ry, &rw, &rh, &consumed) == 4) {
+					if (rw > 0 && rh > 0)
+						drw_rect(drw, rx + x, ry, rw, rh, 1, 0);
+					code += consumed;
 				}
+				*end = '^';
+			} else if (*code == 'f') {
+				char *next = NULL;
+				x += (int)strtol(code + 1, &next, 10);
+				if (next && next > code + 1 && next <= end)
+					code = next - 1;
 			}
-
-			text = text + i + 1;
-			i=-1;
-			isCode = 0;
 		}
+		cur = end + 1;
 	}
 
-	if (!isCode) {
-		w = TEXTW(text) - lrpad;
-		drw_text(drw, x, 0, w, bh, 0, text, 0);
+	if (*cur) {
+		w = TEXTW(cur) - lrpad;
+		drw_text(drw, x, 0, w, bh, 0, cur, 0);
 	}
 
 	drw_setscheme(drw, scheme[SchemeNorm]);
@@ -1212,39 +1232,33 @@ drawbar(Monitor *m)
 	}
 
 	/* Display current dynamic workspace if active */
-	if (m->tagset[m->seltags] >= (1 << LENGTH(tags))) {
+	if ((m->tagset[m->seltags] & ~TAGMASK) && m->tagset[m->seltags] != FULLTAGMASK) {
 		char wstext[32];
 		unsigned int wsnum = 0;
-		
+
 		/* Find which bit is set to get workspace number */
-		for (int i = 10; i < 32; i++) {
-			if (m->tagset[m->seltags] & (1 << i)) {
-				wsnum = i - 9; /* Show as 1, 2, 3... instead of 10, 11, 12... */
+		for (int bit = 10; bit < 32; bit++) {
+			if (m->tagset[m->seltags] & (1U << bit)) {
+				wsnum = bit - 9; /* Show as 1, 2, 3... instead of 10, 11, 12... */
 				break;
 			}
 		}
-		
-		snprintf(wstext, sizeof(wstext), "[WS%d]", wsnum);
-		w = TEXTW(wstext);
-		drw_setscheme(drw, scheme[SchemeTagsSel]);
-		drw_text(drw, x, 0, w, bh, lrpad / 2, wstext, 0);
-		x += w;
+
+		if (wsnum) {
+			snprintf(wstext, sizeof(wstext), "[WS%u]", wsnum);
+			w = TEXTW(wstext);
+			drw_setscheme(drw, scheme[SchemeTagsSel]);
+			drw_text(drw, x, 0, w, bh, lrpad / 2, wstext, 0);
+			x += w;
+		}
 	}
 
 	w = TEXTW(m->ltsymbol);
 	/* Use different colors for different layouts */
 	if (m->lt[m->sellt] == &layouts[2]) { /* monocle layout */
-		/* 
-		 * Only show special monocle color when there are multiple windows
-		 * to indicate that windows are stacked behind the current one.
-		 * This provides visual feedback about window count in monocle mode.
-		 * 
-		 * TODO: This window counting logic is temporary and will be optimized
-		 * in future versions to avoid redundant calculations.
-		 */
 		int n = 0;
-		Client *c;
-		for (c = nexttiled(m->clients); c; c = nexttiled(c->next))
+		Client *tc;
+		for (tc = nexttiled(m->clients); tc; tc = nexttiled(tc->next))
 			n++;
 		/* Only use special color if more than 1 window */
 		if (n > 1)
@@ -1256,9 +1270,7 @@ drawbar(Monitor *m)
 	x = drw_text(drw, x, 0, w, bh, lrpad / 2, m->ltsymbol, 0);
 
 	/* Draw hidden indicator [H] as a separate label */
-	fprintf(stderr, "drawbar: globalhidden=%p\n", (void*)globalhidden);
 	if (globalhidden) {
-		fprintf(stderr, "Drawing [H] indicator\n");
 		w = TEXTW("[H]");
 		drw_setscheme(drw, scheme[SchemeHidden]);
 		x = drw_text(drw, x, 0, w, bh, lrpad / 2, "[H]", 0);
@@ -1309,10 +1321,20 @@ enternotify(XEvent *e)
 void
 expose(XEvent *e)
 {
+	Client *c;
 	Monitor *m;
 	XExposeEvent *ev = &e->xexpose;
 
-	if (ev->count == 0 && (m = wintomon(ev->window))) {
+	if (ev->count != 0)
+		return;
+	if ((c = wintoclienttitle(ev->window))) {
+		if (c->mon->lt[c->mon->sellt]->arrange == magicgrid && ISVISIBLE(c) && !c->isfloating) {
+			drawtitlebar(c);
+			XFlush(dpy);
+		}
+		return;
+	}
+	if ((m = wintomon(ev->window))) {
 		drawbar(m);
 		if (m == selmon)
 			updatesystray();
@@ -1496,20 +1518,15 @@ void
 hide(const Arg *arg)
 {
 	Client *c;
-	
-	fprintf(stderr, "hide() called: globalhidden=%p, selmon->sel=%p\n", 
-	        (void*)globalhidden, (void*)selmon->sel);
-	
+
 	/* If there's a hidden window, restore it */
 	if (globalhidden) {
 		c = globalhidden;
-		fprintf(stderr, "Restoring hidden window: %s\n", c->name);
 		c->ishidden = 0;
 		globalhidden = NULL;
-		
+
 		/* Move window to current tag and monitor if needed */
 		if (!ISVISIBLE(c) || c->mon != selmon) {
-			fprintf(stderr, "Moving hidden window to current tag and monitor\n");
 			if (c->mon != selmon) {
 				/* Move to current monitor */
 				unfocus(c, 1);
@@ -1521,41 +1538,44 @@ hide(const Arg *arg)
 			}
 			/* Move to current tag */
 			c->tags = selmon->tagset[selmon->seltags];
+			setwindowdesktop(c);
+			if (c->tags >= (1U << LENGTH(tags)) && c->tags != FULLTAGMASK) {
+				dynamictags |= c->tags;
+				long data = dynamictags;
+				XChangeProperty(dpy, root, dwmactivews, XA_CARDINAL, 32,
+				                PropModeReplace, (unsigned char *)&data, 1);
+			}
 		}
-		
+
 		/* Restore window position */
 		XMoveWindow(dpy, c->win, c->x, c->y);
 		focus(c);
 		arrange(selmon);
 		return;
 	}
-	
+
 	/* If no selected window, nothing to hide */
-	if (!selmon->sel) {
-		fprintf(stderr, "No selected window to hide\n");
+	if (!selmon->sel)
 		return;
-	}
-	
+
 	/* Hide current window */
 	c = selmon->sel;
-	fprintf(stderr, "Hiding window: %s, setting globalhidden to %p\n", c->name, (void*)c);
 	c->ishidden = 1;
 	globalhidden = c;
+	if (c->titlewin)
+		XUnmapWindow(dpy, c->titlewin);
 	/* Move window offscreen instead of unmapping it */
 	XMoveWindow(dpy, c->win, -9999, c->y);
-	
+
 	/* Focus next visible window */
 	Client *next = NULL;
 	for (next = selmon->clients; next; next = next->next) {
-		if (ISVISIBLE(next) && !next->ishidden) {
-			fprintf(stderr, "Focusing next window: %s\n", next->name);
+		if (ISVISIBLE(next))
 			break;
-		}
 	}
-	
+
 	focus(next);
 	arrange(selmon);
-	fprintf(stderr, "After arrange: globalhidden=%p\n", (void*)globalhidden);
 }
 
 Atom
@@ -1587,8 +1607,8 @@ getsystraywidth()
 {
 	unsigned int w = 0;
 	Client *i;
-	if(showsystray)
-		for(i = systray->icons; i; w += i->w + systrayspacing, i = i->next) ;
+	if (showsystray && systray)
+		for (i = systray->icons; i; w += i->w + systrayspacing, i = i->next) ;
 
 	return w ? w + systrayspacing + SYS_TRAY_GAP : 1;
 }
@@ -1824,8 +1844,8 @@ manage(Window w, XWindowAttributes *wa)
 		swallow(term, c);
 		
 	/* Mark dynamic workspace as used when a window is placed there */
-	if (c->tags >= (1 << LENGTH(tags))) {
-		dynamictags |= c->tags;
+	if ((c->tags & ~TAGMASK) && c->tags != FULLTAGMASK) {
+		dynamictags |= (c->tags & ~TAGMASK);
 		/* Update active workspaces list */
 		long data = dynamictags;
 		XChangeProperty(dpy, root, dwmactivews, XA_CARDINAL, 32,
@@ -1855,8 +1875,8 @@ maprequest(XEvent *e)
 	XMapRequestEvent *ev = &e->xmaprequest;
 
 	Client *i;
-	if ((i = wintosystrayicon(ev->window))) {
-		sendevent(i->win, netatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_WINDOW_ACTIVATE, 0, systray->win, XEMBED_EMBEDDED_VERSION);
+	if (showsystray && systray && (i = wintosystrayicon(ev->window))) {
+		sendevent(i->win, xatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_WINDOW_ACTIVATE, 0, systray->win, XEMBED_EMBEDDED_VERSION);
 		resizebarwin(selmon);
 		updatesystray();
 	}
@@ -1867,231 +1887,213 @@ maprequest(XEvent *e)
 		manage(ev->window, &wa);
 }
 
+int
+titlebarheight(void)
+{
+	return drw->fonts->h + 4;
+}
+
+int
+clientouterwidth(Client *c)
+{
+	unsigned int n;
+	Client *nbc;
+
+	if (!c->isfloating && c->mon->lt[c->mon->sellt]->arrange) {
+		for (n = 0, nbc = nexttiled(c->mon->clients); nbc && n < 2; nbc = nexttiled(nbc->next), n++);
+		if (c->mon->lt[c->mon->sellt]->arrange == monocle || n == 1)
+			return c->w;
+	}
+	return c->w + 2 * c->bw;
+}
+
 void
 createtitlebar(Client *c)
 {
-    XSetWindowAttributes wa;
-    
-    /* Initialize titlewin to None */
-    c->titlewin = None;
-    
-    /* Calculate dynamic titlebar dimensions based on font height */
-    int title_height = drw->fonts->h + 4;  /* font height + some padding */
-    int title_padding = drw->fonts->h / 4; /* proportional padding */
-    
-    printf("Font height: %d, calculated title_height: %d, title_padding: %d\n", 
-           drw->fonts->h, title_height, title_padding);
-    fflush(stdout);
-    
-    /* Create titlebar window with custom magicgrid colors */
-    wa.override_redirect = True;
-    
-    /* Create custom color for window background */
-    Clr titlebar_bg_color;
-    drw_clr_create(drw, &titlebar_bg_color, magicGridTitleBG);
-    
-    wa.background_pixel = titlebar_bg_color.pixel;
-    wa.border_pixel = titlebar_bg_color.pixel;
-    wa.event_mask = ExposureMask;
-    
-    c->titlewin = XCreateWindow(dpy, root, c->x, c->y - title_height,
-                               c->w + 2 * c->bw, title_height, 0, DefaultDepth(dpy, screen),
-                               CopyFromParent, DefaultVisual(dpy, screen),
-                               CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWEventMask, &wa);
+	XSetWindowAttributes wa;
+	int title_height = titlebarheight();
+	unsigned int title_w = MAX(c->w + 2 * c->bw, 1);
+
+	c->titlewin = None;
+
+	wa.override_redirect = True;
+	wa.background_pixel = magicgridtitlescheme ? magicgridtitlescheme[ColBg].pixel : scheme[SchemeNorm][ColBg].pixel;
+	wa.border_pixel = wa.background_pixel;
+	wa.event_mask = ExposureMask;
+
+	c->titlewin = XCreateWindow(dpy, root, c->x, c->y - title_height,
+	                            title_w, title_height, 0, DefaultDepth(dpy, screen),
+	                            CopyFromParent, DefaultVisual(dpy, screen),
+	                            CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWEventMask, &wa);
 }
 
 void
 drawtitlebar(Client *c)
 {
-    if (!c->titlewin)
-        return;
-        
-    /* Calculate dynamic titlebar dimensions based on font height */
-    int title_height = drw->fonts->h + 4;  /* font height + some padding */
-    int title_padding = drw->fonts->h / 4; /* proportional padding */
-    
-    /* Save original drawing context dimensions */
-    unsigned int orig_w = drw->w;
-    unsigned int orig_h = drw->h;
-    
-    /* Set drawing context to titlebar size (including border) */
-    int title_w = c->w + 2 * c->bw;
-    drw_resize(drw, title_w, title_height);
-    
-    /* Create custom color scheme for magicgrid titles */
-    Clr title_colors[3];
-    /* Use the same colors for all windows - no distinction for selected */
+	int title_height, title_padding, title_w;
 
-	/**
-	 * 这里非常奇怪，ColFg 必需要设置成 BG color, 在画rect用的是前景色吗？
-	 * 下面draw_text之前要再设一次正确的前景色，暂时先这样吧，只会用AI写代码是这样的，最终还是要连猜带蒙
-	 */
-    drw_clr_create(drw, &title_colors[ColFg], magicGridTitleBG);
-    drw_clr_create(drw, &title_colors[ColBg], magicGridTitleBG);
-    drw_clr_create(drw, &title_colors[ColBorder], magicGridTitleBG);
-    
-    /* Set our custom color scheme */
-    drw_setscheme(drw, title_colors);
-    
-    /* Draw background */
-    drw_rect(drw, 0, 0, title_w, title_height, 1, 0);
-    
-    drw_clr_create(drw, &title_colors[ColFg], magicGridTitleText);
-    /* Draw title text with padding */
-    drw_text(drw, title_padding, 0, title_w - 2 * title_padding, 
-             title_height, (title_height - drw->fonts->h) / 2, c->name, 0);
-    
-    /* Map to titlebar window */
-    drw_map(drw, c->titlewin, 0, 0, title_w, title_height);
-    
-    /* Restore original drawing context dimensions */
-    drw_resize(drw, orig_w, orig_h);
+	if (!c || !c->titlewin || !magicgridtitlescheme)
+		return;
+
+	title_height = titlebarheight();
+	title_padding = drw->fonts->h / 4;
+	title_w = clientouterwidth(c);
+	if (title_w <= 0 || title_height <= 0)
+		return;
+
+	/* Grow shared drawable only if needed, avoiding per-redraw Pixmap thrashing. */
+	if (drw->w < (unsigned int)title_w || drw->h < (unsigned int)title_height)
+		drw_resize(drw, MAX(drw->w, (unsigned int)title_w), MAX(drw->h, (unsigned int)title_height));
+
+	drw_setscheme(drw, magicgridtitlescheme);
+	/* invert=1 fills with ColBg (magicGridTitleBG) */
+	drw_rect(drw, 0, 0, (unsigned int)title_w, (unsigned int)title_height, 1, 1);
+	if (title_w > 2 * title_padding)
+		drw_text(drw, title_padding, 0, (unsigned int)(title_w - 2 * title_padding),
+		         (unsigned int)title_height, (title_height - drw->fonts->h) / 2, c->name, 0);
+
+	XCopyArea(drw->dpy, drw->drawable, c->titlewin, drw->gc, 0, 0,
+	          (unsigned int)title_w, (unsigned int)title_height, 0, 0);
+	drw_setscheme(drw, scheme[SchemeNorm]);
 }
 
 void
 destroytitlebar(Client *c)
 {
-    if (c->titlewin) {
-        XDestroyWindow(dpy, c->titlewin);
-        c->titlewin = None;
-        printf("Destroyed titlebar window for '%s'\n", c->name);
-        fflush(stdout);
-    }
+	if (c->titlewin) {
+		XDestroyWindow(dpy, c->titlewin);
+		c->titlewin = None;
+	}
 }
 
 void
 hidetitlebars(Monitor *m)
 {
-    Client *c;
-    for (c = m->clients; c; c = c->next) {
-        if (c->titlewin) {
-            XUnmapWindow(dpy, c->titlewin);
-        }
-    }
+	Client *c;
+
+	for (c = m->clients; c; c = c->next) {
+		if (c->titlewin)
+			XUnmapWindow(dpy, c->titlewin);
+	}
 }
 
 void
 drawmagicgridtitle(Client *c, int x, int y, int w, int h)
 {
-    /* Update titlebar position and size, considering window border */
-    if (c->titlewin) {
-        /* Calculate dynamic titlebar dimensions based on font height */
-        int title_height = drw->fonts->h + 4;  /* font height + some padding */
-        
-        /* Position titlebar to match client window including border */
-        int title_x = c->x;
-        int title_y = c->y - title_height;
-        int title_w = c->w + 2 * c->bw;
-        
-        XMoveResizeWindow(dpy, c->titlewin, title_x, title_y, title_w, title_height);
-        XMapWindow(dpy, c->titlewin);
-        drawtitlebar(c);
-        printf("Updated titlebar '%s': client(x=%d,y=%d,w=%d,h=%d,bw=%d) titlebar(x=%d,y=%d,w=%d,h=%d) gap=%d\n", 
-               c->name, c->x, c->y, c->w, c->h, c->bw, title_x, title_y, title_w, title_height, gappx);
-        fflush(stdout);
-    }
+	int title_height, title_x, title_y, title_w;
+
+	(void)x; (void)y; (void)w; (void)h;
+	if (!c->titlewin)
+		return;
+
+	title_height = titlebarheight();
+	title_x = c->x;
+	title_y = c->y - title_height;
+	title_w = MAX(clientouterwidth(c), 1);
+
+	XMoveResizeWindow(dpy, c->titlewin, title_x, title_y, (unsigned int)title_w, (unsigned int)title_height);
+	XMapWindow(dpy, c->titlewin);
+	drawtitlebar(c);
 }
 
 void
 magicgrid(Monitor *m)
 {
-    unsigned int i, n;
-    unsigned int cx, cy, cw, ch;
-    unsigned int dx;
-    unsigned int cols, rows, overcols;
-    Client *c;
-    
-    /* Calculate dynamic titlebar height based on font height */
-    int dynamic_title_height = drw->fonts->h + 4;
+	unsigned int i, n;
+	int cx, cy, cw, ch;
+	int dx = 0;
+	unsigned int cols, rows, overcols;
+	int dynamic_title_height = titlebarheight();
+	int gap = (int)gappx;
+	Client *c;
 
-    printf("magicgrid called! monitor=%p, dynamic_title_height=%d\n", (void*)m, dynamic_title_height);
-    fflush(stdout);
-    for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
-    printf("magicgrid: found %d windows\n", n);
-    fflush(stdout);
-    if (n == 0) return;
-    if (n == 1) {
-        c = nexttiled(m->clients);
-        cw = (m->ww - 2 * gappx) * 0.6;
-        ch = (m->wh - 2 * gappx) * 0.6;
-        
-        /* Position window with title space */
-        resize(c,
-               m->wx + (m->ww - cw) / 2 + gappx,
-               m->wy + (m->wh - ch) / 2 + gappx + dynamic_title_height,
-               cw - 2 * c->bw,
-               ch - 2 * c->bw - dynamic_title_height,
-               0);
-        
-        /* Draw title */
-        drawmagicgridtitle(c, 0, 0, 0, 0);
-        return;
-    }
-    if (n == 2) {
-        c = nexttiled(m->clients);
-        cw = (m->ww - 2 * gappx - gappx) / 2;
-        ch = (m->wh - 2 * gappx) * 0.6;
-        
-        /* First window */
-        resize(c,
-               m->wx + gappx,
-               m->wy + (m->wh - ch) / 2 + gappx + dynamic_title_height,
-               cw - 2 * c->bw,
-               ch - 2 * c->bw - dynamic_title_height,
-               0);
-        
-        /* Draw first title */
-        drawmagicgridtitle(c, 0, 0, 0, 0);
-        
-        /* Second window */
-        c = nexttiled(c->next);
-        resize(c,
-               m->wx + cw + gappx + gappx,
-               m->wy + (m->wh - ch) / 2 + gappx + dynamic_title_height,
-               cw - 2 * c->bw,
-               ch - 2 * c->bw - dynamic_title_height,
-               0);
-        
-        /* Draw second title */
-        drawmagicgridtitle(c, 0, 0, 0, 0);
-        return;
-    }
+	/* Hide titlebars of any clients not participating in the visible tiled grid. */
+	for (c = m->clients; c; c = c->next) {
+		if (c->titlewin && (c->isfloating || !ISVISIBLE(c)))
+			XUnmapWindow(dpy, c->titlewin);
+	}
 
-    for (cols = 0; cols <= n / 2; cols++)
-        if (cols * cols >= n)
-            break;
-    rows = (cols && (cols - 1) * cols >= n) ? cols - 1 : cols;
-    ch = (m->wh - 2 * gappx - (rows - 1) * gappx) / rows;
-    cw = (m->ww - 2 * gappx - (cols - 1) * gappx) / cols;
+	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
+	if (n == 0)
+		return;
+	if (n == 1) {
+		c = nexttiled(m->clients);
+		cw = (int)((m->ww - 2 * gap) * 0.6);
+		ch = (int)((m->wh - 2 * gap) * 0.6);
 
-    overcols = n % cols;
-    if (overcols)
-        dx = (m->ww - overcols * cw - (overcols - 1) * gappx) / 2 - gappx;
-    for(i = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++) {
-        cx = m->wx + (i % cols) * (cw + gappx);
-        cy = m->wy + (i / cols) * (ch + gappx);
-        if (overcols && i >= n - overcols) {
-            cx += dx;
-        }
-        
-        /* Position window with title space */
-        resize(c,
-               cx + gappx,
-               cy + gappx + dynamic_title_height,
-               cw - 2 * c->bw,
-               ch - 2 * c->bw - dynamic_title_height,
-               0);
-        
-        /* Draw title */
-        drawmagicgridtitle(c, 0, 0, 0, 0);
-    }
+		/* Position window with title space */
+		resize(c,
+		       m->wx + (m->ww - cw) / 2 + gap,
+		       m->wy + (m->wh - ch) / 2 + gap + dynamic_title_height,
+		       MAX(cw - 2 * c->bw, 1),
+		       MAX(ch - 2 * c->bw - dynamic_title_height, 1),
+		       0);
+
+		drawmagicgridtitle(c, 0, 0, 0, 0);
+		return;
+	}
+	if (n == 2) {
+		c = nexttiled(m->clients);
+		cw = (m->ww - 3 * gap) / 2;
+		ch = (int)((m->wh - 2 * gap) * 0.6);
+
+		/* First window */
+		resize(c,
+		       m->wx + gap,
+		       m->wy + (m->wh - ch) / 2 + gap + dynamic_title_height,
+		       MAX(cw - 2 * c->bw, 1),
+		       MAX(ch - 2 * c->bw - dynamic_title_height, 1),
+		       0);
+		drawmagicgridtitle(c, 0, 0, 0, 0);
+
+		/* Second window */
+		c = nexttiled(c->next);
+		resize(c,
+		       m->wx + cw + 2 * gap,
+		       m->wy + (m->wh - ch) / 2 + gap + dynamic_title_height,
+		       MAX(cw - 2 * c->bw, 1),
+		       MAX(ch - 2 * c->bw - dynamic_title_height, 1),
+		       0);
+		drawmagicgridtitle(c, 0, 0, 0, 0);
+		return;
+	}
+
+	for (cols = 0; cols <= n / 2; cols++)
+		if (cols * cols >= n)
+			break;
+	rows = (cols && (cols - 1) * cols >= n) ? cols - 1 : cols;
+	ch = (m->wh - (int)(rows + 1) * gap) / (int)rows;
+	cw = (m->ww - (int)(cols + 1) * gap) / (int)cols;
+	if (cw < bh)
+		cw = bh;
+	if (ch < bh + dynamic_title_height)
+		ch = bh + dynamic_title_height;
+
+	overcols = n % cols;
+	if (overcols)
+		dx = (m->ww - (int)overcols * cw - (int)(overcols - 1) * gap) / 2 - gap;
+	for (i = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++) {
+		cx = m->wx + (int)(i % cols) * (cw + gap);
+		cy = m->wy + (int)(i / cols) * (ch + gap);
+		if (overcols && i >= n - overcols)
+			cx += dx;
+
+		/* Position window with title space */
+		resize(c,
+		       cx + gap,
+		       cy + gap + dynamic_title_height,
+		       MAX(cw - 2 * c->bw, 1),
+		       MAX(ch - 2 * c->bw - dynamic_title_height, 1),
+		       0);
+
+		drawmagicgridtitle(c, 0, 0, 0, 0);
+	}
 }
 
 void
 monocle(Monitor *m)
 {
 	unsigned int n = 0, current = 1;
-	hidetitlebars(m);
 	Client *c;
 
 	for (c = m->clients; c; c = c->next)
@@ -2144,8 +2146,10 @@ movemouse(const Arg *arg)
 	if (XGrabPointer(dpy, root, False, MOUSEMASK, GrabModeAsync, GrabModeAsync,
 		None, cursor[CurMove]->cursor, CurrentTime) != GrabSuccess)
 		return;
-	if (!getrootptr(&x, &y))
+	if (!getrootptr(&x, &y)) {
+		XUngrabPointer(dpy, CurrentTime);
 		return;
+	}
 	do {
 		XMaskEvent(dpy, MOUSEMASK|ExposureMask|SubstructureRedirectMask, &ev);
 		switch(ev.type) {
@@ -2259,9 +2263,12 @@ propertynotify(XEvent *e)
 			updatetitle(c);
 			if (c == c->mon->sel)
 				drawbar(c->mon);
-			/* If magicgrid layout is active, redraw all titles */
-			if (c->mon->lt[c->mon->sellt]->arrange == magicgrid)
-				arrange(c->mon);
+			/* If magicgrid layout is active and this tiled client is visible, redraw only its titlebar */
+			if (c->mon->lt[c->mon->sellt]->arrange == magicgrid
+			&& ISVISIBLE(c) && !c->isfloating && c->titlewin) {
+				drawtitlebar(c);
+				XFlush(dpy);
+			}
 		}
 		if (ev->atom == netatom[NetWMWindowType])
 			updatewindowtype(c);
@@ -2293,7 +2300,7 @@ removesystrayicon(Client *i)
 {
 	Client **ii;
 
-	if (!showsystray || !i)
+	if (!showsystray || !systray || !i)
 		return;
 	for (ii = &systray->icons; *ii && *ii != i; ii = &(*ii)->next);
 	if (ii)
@@ -2494,6 +2501,10 @@ restack(Monitor *m)
 			if (!c->isfloating && ISVISIBLE(c)) {
 				XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
 				wc.sibling = c->win;
+				if (m->lt[m->sellt]->arrange == magicgrid && c->titlewin) {
+					XConfigureWindow(dpy, c->titlewin, CWSibling|CWStackMode, &wc);
+					wc.sibling = c->titlewin;
+				}
 			}
 	}
 	raisefocusoverlay();
@@ -2755,6 +2766,8 @@ setfullscreen(Client *c, int fullscreen)
 		c->oldbw = c->bw;
 		c->bw = 0;
 		c->isfloating = 1;
+		if (c->titlewin)
+			XUnmapWindow(dpy, c->titlewin);
 		resizeclient(c, c->mon->mx, c->mon->my, c->mon->mw, c->mon->mh);
 		XRaiseWindow(dpy, c->win);
 	} else if (!fullscreen && c->isfullscreen){
@@ -2778,18 +2791,18 @@ setwindowdesktop(Client *c)
 	/* 为窗口设置所属的桌面/标签
 	 * 计算窗口所在的桌面编号（从0开始）
 	 */
-	int desktop = -1;
-	unsigned int tags = c->tags;
-	
+	long desktop = -1;
+	unsigned int ctags = c->tags;
+
 	/* 找到窗口的第一个激活标签作为桌面编号 */
-	for (int i = 0; i < 32 && tags; i++) {  /* 最多32个标签 */
-		if (tags & 1) {
+	for (int i = 0; i < 32 && ctags; i++) {  /* 最多32个标签 */
+		if (ctags & 1U) {
 			desktop = i;
 			break;
 		}
-		tags >>= 1;
+		ctags >>= 1;
 	}
-	
+
 	/* 设置_NET_WM_DESKTOP属性 */
 	if (desktop >= 0) {
 		XChangeProperty(dpy, c->win, netatom[NetWMDesktop], XA_CARDINAL, 32,
@@ -2814,8 +2827,8 @@ setlayout(const Arg *arg)
 void
 togglelayout(const Arg *arg)
 {
-	Layout *current = selmon->lt[selmon->sellt];
-	Layout *target;
+	const Layout *current = selmon->lt[selmon->sellt];
+	const Layout *target;
 	
 	/* toggle between tile and monocle */
 	if (current->arrange == tile)
@@ -2853,28 +2866,11 @@ smartresize(const Arg *arg)
 	Client *c;
 	int nw, nh;
 	float scale;
-	FILE *logfile = fopen("/tmp/dwm-smartresize.log", "a");
 
-	if (logfile) {
-		fprintf(logfile, "[smartresize] Function called with arg->f = %f\n", arg->f);
-		fflush(logfile);
-	}
-
-	if (!selmon->sel) {
-		if (logfile) {
-			fprintf(logfile, "[smartresize] No selected window, returning\n");
-			fclose(logfile);
-		}
+	if (!selmon->sel)
 		return;
-	}
 
 	c = selmon->sel;
-
-	if (logfile) {
-		fprintf(logfile, "[smartresize] Window: %s, isfloating: %d, current size: %dx%d\n",
-			c->name, c->isfloating, c->w, c->h);
-		fflush(logfile);
-	}
 
 	/* If floating window, resize proportionally */
 	if (c->isfloating) {
@@ -2882,45 +2878,17 @@ smartresize(const Arg *arg)
 		nw = (int)(c->w * scale);
 		nh = (int)(c->h * scale);
 
-		if (logfile) {
-			fprintf(logfile, "[smartresize] Floating window - scale: %f, new size: %dx%d\n",
-				scale, nw, nh);
-			fflush(logfile);
-		}
-
 		/* Prevent window from becoming too small or too large */
-		if (nw < 50 || nh < 50 || nw > selmon->ww || nh > selmon->wh) {
-			if (logfile) {
-				fprintf(logfile, "[smartresize] Size out of bounds (monitor: %dx%d), returning\n",
-					selmon->ww, selmon->wh);
-				fclose(logfile);
-			}
+		if (nw < 50 || nh < 50 || nw > selmon->ww || nh > selmon->wh)
 			return;
-		}
 
 		/* Resize without moving the window */
-		if (logfile) {
-			fprintf(logfile, "[smartresize] Calling resize with pos: (%d,%d), size: %dx%d\n",
-				c->x, c->y, nw, nh);
-			fflush(logfile);
-		}
 		resize(c, c->x, c->y, nw, nh, 1);
-		if (logfile) {
-			fprintf(logfile, "[smartresize] After resize, window size: %dx%d\n", c->w, c->h);
-			fflush(logfile);
-		}
 	}
 	/* If tiled window, adjust mfact */
 	else {
-		if (logfile) {
-			fprintf(logfile, "[smartresize] Tiled window - calling setmfact\n");
-			fflush(logfile);
-		}
 		setmfact(arg);
 	}
-
-	if (logfile)
-		fclose(logfile);
 }
 
 void
@@ -2997,10 +2965,16 @@ setup(void)
 	scheme[LENGTH(colors)] = drw_scm_create(drw, colors[0], 3);
 	for (i = 0; i < LENGTH(colors); i++)
 		scheme[i] = drw_scm_create(drw, colors[i], 3);
+	{
+		const char *titlecolors[3] = { magicGridTitleText, magicGridTitleBG, magicGridTitleBG };
+		magicgridtitlescheme = drw_scm_create(drw, titlecolors, 3);
+	}
 	/* init system tray */
 	updatesystray();
 	/* init bars */
 	updatebars();
+	if (showsystray && systray)
+		updatesystray();
 	updatestatus();
 	/* supporting window for NetWMCheck */
 	wmcheckwin = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
@@ -3115,7 +3089,6 @@ tile(Monitor *m)
 {
 	unsigned int i, n, h, r, g = 0, mw, my, ty;
 	Client *c;
-	hidetitlebars(m);
 
 	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
 	if (n == 0)
@@ -3149,7 +3122,7 @@ togglebar(const Arg *arg)
 	selmon->showbar = selmon->pertag->showbars[selmon->pertag->curtag] = !selmon->showbar;
 	updatebarpos(selmon);
 	resizebarwin(selmon);
-	if (showsystray) {
+	if (showsystray && systray) {
 		XWindowChanges wc;
 		if (!selmon->showbar)
 			wc.y = -bh;
@@ -3210,16 +3183,15 @@ toggleview(const Arg *arg)
 	if (newtagset) {
 		selmon->tagset[selmon->seltags] = newtagset;
 
-		if (newtagset == ~0) {
+		if (newtagset == ~0U) {
 			selmon->pertag->prevtag = selmon->pertag->curtag;
 			selmon->pertag->curtag = 0;
-		}
-
-		/* test if the user did not select the same tag */
-		if (!(newtagset & 1 << (selmon->pertag->curtag - 1))) {
+		} else if (selmon->pertag->curtag == 0
+		|| !(newtagset & (1U << (selmon->pertag->curtag - 1)))) {
+			/* test if the user did not select the same tag */
 			selmon->pertag->prevtag = selmon->pertag->curtag;
-			for (i = 0; !(newtagset & 1 << i); i++) ;
-			selmon->pertag->curtag = i + 1;
+			for (i = 0; i < 32 && !(newtagset & (1U << i)); i++) ;
+			selmon->pertag->curtag = (i < (int)LENGTH(tags)) ? (unsigned int)(i + 1) : 0;
 		}
 
 		/* apply settings for this view */
@@ -3258,10 +3230,9 @@ unmanage(Client *c, int destroyed)
 {
 	Monitor *m = c->mon;
 	XWindowChanges wc;
-	
+
 	if (focusoverlay.client_ref == c)
 		hidefocusoverlay();
-	destroytitlebar(c);
 
 	if (c->swallowing) {
 		unswallow(c);
@@ -3270,6 +3241,11 @@ unmanage(Client *c, int destroyed)
 
 	Client *s = swallowingclient(c->win);
 	if (s) {
+		if (focusoverlay.client_ref == s->swallowing)
+			hidefocusoverlay();
+		if (globalhidden == s->swallowing)
+			globalhidden = NULL;
+		destroytitlebar(s->swallowing);
 		free(s->swallowing);
 		s->swallowing = NULL;
 		arrange(m);
@@ -3277,11 +3253,11 @@ unmanage(Client *c, int destroyed)
 		return;
 	}
 
+	destroytitlebar(c);
+
 	/* Clean up hidden pointer if this window was hidden */
-	if (globalhidden == c) {
-		fprintf(stderr, "UNMANAGE: Clearing globalhidden pointer for window: %s\n", c->name);
+	if (globalhidden == c)
 		globalhidden = NULL;
-	}
 
 	detach(c);
 	detachstack(c);
@@ -3298,23 +3274,24 @@ unmanage(Client *c, int destroyed)
 		XUngrabServer(dpy);
 	}
 	/* Clean up empty dynamic workspaces */
-	if (c->tags >= (1 << LENGTH(tags))) {
+	if ((c->tags & ~TAGMASK) && c->tags != FULLTAGMASK) {
+		unsigned int dynmask = c->tags & ~TAGMASK;
 		/* Check if this dynamic workspace still has any windows */
 		int has_windows = 0;
 		Client *check;
 		for (Monitor *mon = mons; mon; mon = mon->next) {
 			for (check = mon->clients; check; check = check->next) {
-				if (check->tags == c->tags) {
+				if (check->tags & dynmask) {
 					has_windows = 1;
 					break;
 				}
 			}
 			if (has_windows) break;
 		}
-		
+
 		if (!has_windows) {
 			/* No more windows in this dynamic workspace, mark as unused */
-			dynamictags &= ~c->tags;
+			dynamictags &= ~dynmask;
 			/* Update active workspaces list */
 			long data = dynamictags;
 			XChangeProperty(dpy, root, dwmactivews, XA_CARDINAL, 32,
@@ -3372,7 +3349,7 @@ updatebars(void)
 				CopyFromParent, DefaultVisual(dpy, screen),
 				CWOverrideRedirect|CWBackPixmap|CWEventMask, &wa);
 		XDefineCursor(dpy, m->barwin, cursor[CurNormal]->cursor);
-		if (showsystray && m == systraytomon(m))
+		if (showsystray && systray && m == systraytomon(m))
 			XMapRaised(dpy, systray->win);
 		XMapRaised(dpy, m->barwin);
 		XSetClassHint(dpy, m->barwin, &ch);
@@ -3407,9 +3384,9 @@ updateclientlist()
 }
 
 void updatecurrentdesktop(void){
-	long rawdata[] = { selmon->tagset[selmon->seltags] };
-	int i=0;
-	while(*rawdata >> (i+1)){
+	unsigned long raw = selmon->tagset[selmon->seltags];
+	int i = 0;
+	while (raw >> (i + 1)) {
 		i++;
 	}
 	long data[] = { i };
@@ -3670,8 +3647,12 @@ updatesystray(void)
 	x -= w;
 	XMoveResizeWindow(dpy, systray->win, x, m->by, w, bh);
 	wc.x = x; wc.y = m->by; wc.width = w; wc.height = bh;
-	wc.stack_mode = Above; wc.sibling = m->barwin;
-	XConfigureWindow(dpy, systray->win, CWX|CWY|CWWidth|CWHeight|CWSibling|CWStackMode, &wc);
+	if (m->barwin) {
+		wc.stack_mode = Above; wc.sibling = m->barwin;
+		XConfigureWindow(dpy, systray->win, CWX|CWY|CWWidth|CWHeight|CWSibling|CWStackMode, &wc);
+	} else {
+		XConfigureWindow(dpy, systray->win, CWX|CWY|CWWidth|CWHeight, &wc);
+	}
 	XMapWindow(dpy, systray->win);
 	XMapSubwindows(dpy, systray->win);
 	/* redraw background */
@@ -3780,27 +3761,32 @@ void
 killworkspace(unsigned int tag)
 {
 	/* Only allow killing dynamic workspaces (bits 10-31) */
-	if (tag < (1 << 10))
+	if (tag < (1U << 10))
 		return;
-	
+
 	/* Move all windows from this workspace to tag 1 */
 	Client *c;
 	for (Monitor *m = mons; m; m = m->next) {
+		int moved = 0;
 		for (c = m->clients; c; c = c->next) {
-			if (c->tags == tag) {
-				c->tags = 1;  /* Move to tag 1 */
+			if (c->tags & tag) {
+				c->tags = (c->tags & ~tag) ? (c->tags & ~tag) : 1;
+				setwindowdesktop(c);
+				moved = 1;
 			}
 		}
+		if (moved)
+			arrange(m);
 	}
-	
+
 	/* Mark as unused */
 	dynamictags &= ~tag;
-	
+
 	/* If currently in this workspace, switch to tag 1 */
 	if (selmon->tagset[selmon->seltags] == tag) {
 		view(&(Arg){.ui = 1});
 	}
-	
+
 	/* Update active workspaces list */
 	long data = dynamictags;
 	XChangeProperty(dpy, root, dwmactivews, XA_CARDINAL, 32,
@@ -3868,7 +3854,7 @@ view(const Arg *arg)
 {
 	int i;
 	unsigned int tmptag;
-	unsigned int mask = (arg->ui >= (1 << LENGTH(tags))) ? FULLTAGMASK : TAGMASK;
+	unsigned int mask = (arg->ui >= (1U << LENGTH(tags))) ? FULLTAGMASK : TAGMASK;
 
 	if ((arg->ui & mask) == selmon->tagset[selmon->seltags])
 		return;
@@ -3877,12 +3863,12 @@ view(const Arg *arg)
 		selmon->tagset[selmon->seltags] = arg->ui & mask;
 		selmon->pertag->prevtag = selmon->pertag->curtag;
 
-		if (arg->ui == ~0)
+		if (arg->ui == ~0U)
 			selmon->pertag->curtag = 0;
 		else {
-			for (i = 0; !(arg->ui & 1 << i); i++) ;
+			for (i = 0; i < 32 && !(arg->ui & (1U << i)); i++) ;
 			/* For dynamic workspaces (bits 10+), use default pertag settings */
-			if (i >= LENGTH(tags)) {
+			if (i >= (int)LENGTH(tags)) {
 				selmon->pertag->curtag = 0;  /* Use default settings */
 			} else {
 				selmon->pertag->curtag = i + 1;
@@ -3907,11 +3893,11 @@ view(const Arg *arg)
 	focus(NULL);
 	arrange(selmon);
 	updatecurrentdesktop();
-	
+
 	/* Update dynamic workspace properties */
-	if (arg->ui >= (1 << LENGTH(tags))) {
+	if (arg->ui != ~0U && arg->ui >= (1U << LENGTH(tags))) {
 		long data = arg->ui;
-		XChangeProperty(dpy, root, dwmcurrentws, XA_CARDINAL, 32, 
+		XChangeProperty(dpy, root, dwmcurrentws, XA_CARDINAL, 32,
 		                PropModeReplace, (unsigned char *)&data, 1);
 	}
 }
@@ -3931,6 +3917,8 @@ winpid(Window w)
 	xcb_res_query_client_ids_cookie_t c = xcb_res_query_client_ids(xcon, 1, &spec);
 	xcb_res_query_client_ids_reply_t *r = xcb_res_query_client_ids_reply(xcon, c, &e);
 
+	if (e)
+		free(e);
 	if (!r)
 		return (pid_t)0;
 
@@ -4060,10 +4048,25 @@ wintoclient(Window w)
 }
 
 Client *
+wintoclienttitle(Window w)
+{
+	Client *c;
+	Monitor *m;
+
+	if (!w)
+		return NULL;
+	for (m = mons; m; m = m->next)
+		for (c = m->clients; c; c = c->next)
+			if (c->titlewin == w)
+				return c;
+	return NULL;
+}
+
+Client *
 wintosystrayicon(Window w) {
 	Client *i = NULL;
 
-	if (!showsystray || !w)
+	if (!showsystray || !systray || !w)
 		return i;
 	for (i = systray->icons; i && i->win != w; i = i->next) ;
 	return i;

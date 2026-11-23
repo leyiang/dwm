@@ -244,6 +244,8 @@ focusoverlay_update_state(
 		return;
 	if (overlay->client_ref != client_ref)
 		return;
+	if (!w || !h)
+		return;
 
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	elapsed_ms = (now.tv_sec - overlay->started_at.tv_sec) * 1000L
@@ -261,6 +263,9 @@ focusoverlay_update_state(
 			dpy, root, 0, 0, 1, 1, 0, DefaultDepth(dpy, screen),
 			CopyFromParent, DefaultVisual(dpy, screen),
 			CWOverrideRedirect|CWBackPixel|CWBorderPixel, &wa);
+		if (config->shape_supported)
+			XShapeCombineRectangles(dpy, overlay->window, ShapeInput, 0, 0,
+				NULL, 0, ShapeSet, Unsorted);
 	} else {
 		XSetWindowBackground(dpy, overlay->window, color);
 	}

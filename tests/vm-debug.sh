@@ -16,7 +16,7 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-$REPO_ROOT/vm-artifacts}"
 BUILD_LOG="${BUILD_LOG:-/tmp/dwm-vm-build.log}"
 
 usage() {
-    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|layout-check|background-check|resize-check}"
+    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|layout-check|background-check|resize-check|title-check}"
     exit 1
 }
 
@@ -66,7 +66,7 @@ deploy() {
 
 setup_tools() {
     remote_ssh "echo '$VM_PASS' | sudo -S apt-get update"
-    remote_ssh "echo '$VM_PASS' | sudo -S apt-get install -y ffmpeg xdotool wmctrl scrot x11-utils xserver-xephyr xauth dbus-daemon python3-gi gir1.2-gtk-3.0"
+    remote_ssh "echo '$VM_PASS' | sudo -S apt-get install -y ffmpeg xdotool wmctrl scrot x11-utils xserver-xephyr xauth dbus-daemon python3-gi gir1.2-gtk-3.0 python3-xlib"
 }
 
 status() {
@@ -133,5 +133,17 @@ case "${1:-}" in
     layout-check) layout_check ;;
     background-check) background_check ;;
     resize-check) resize_check ;;
+    title-check)
+        shift
+        remote_scp_to "$SCRIPT_DIR/magicgrid-titles.py" "/home/$VM_USER/magicgrid-titles.py"
+        # SSH joins remote arguments as shell text. Only forward test options and integers.
+        for option in "$@"; do
+            case "$option" in
+                hide|latency|--rounds) ;;
+                ''|*[!0-9]*) usage ;;
+            esac
+        done
+        remote_ssh "DISPLAY=:0 XAUTHORITY=/run/user/\$(id -u)/gdm/Xauthority /usr/bin/python3 '/home/$VM_USER/magicgrid-titles.py' $*"
+        ;;
     *) usage ;;
 esac
