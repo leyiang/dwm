@@ -162,7 +162,6 @@ static const Key keys[] = {
     { 0         , XF86XK_AudioLowerVolume , spawn , SHCMD("vol down") },
     { 0         , XF86XK_AudioMicMute     , spawn , SHCMD("vol toggleMuteMic") },
     { ShiftMask , XF86XK_AudioMute        , spawn , SHCMD("vol default") },
-    { ShiftMask , XF86XK_AudioMute        , spawn , SHCMD("vol default") },
     { 0         , XK_Pause                , spawn , SHCMD("vol pause") },
     // { 0         , XF86XK_PrintScreenDWM   , spawn , SHCMD("capt") },
 
@@ -255,6 +254,4 @@ static const Button buttons[] = {
 	{ ClkClientWin,         MODKEY,         Button3,        resizemouse,    {0} },
 	{ ClkTagBar,            0,              Button1,        view,           {0} },
 	{ ClkTagBar,            0,              Button3,        toggleview,     {0} },
-	{ ClkTagBar,            MODKEY,         Button1,        tag,            {0} },
-	{ ClkTagBar,            MODKEY,         Button3,        toggletag,      {0} },
 };
