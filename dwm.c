@@ -252,6 +252,7 @@ static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void grabbuttons(Client *c, int focused);
 static void grabkeys(void);
 static void hide(const Arg *arg);
+static void hideclients(Client *c);
 static void hidefocusoverlay(void);
 static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
@@ -272,6 +273,7 @@ static void monocle(Monitor *m);
 static void motionnotify(XEvent *e);
 static void movemouse(const Arg *arg);
 static Client *nexttiled(Client *c);
+static void presizeoffscreen(Client *c);
 static void pop(Client *c);
 static void propertynotify(XEvent *e);
 static void quit(const Arg *arg);
@@ -304,6 +306,7 @@ static void setnumdesktops(void);
 static void setup(void);
 static void setviewport(void);
 static void seturgent(Client *c, int urg);
+static void showclients(Client *c);
 static void showhide(Client *c);
 static void spawn(const Arg *arg);
 static Monitor *systraytomon(Monitor *m);
@@ -759,15 +762,16 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 void
 arrange(Monitor *m)
 {
-	if (m)
-		showhide(m->stack);
-	else for (m = mons; m; m = m->next)
-		showhide(m->stack);
 	if (m) {
 		arrangemon(m);
+		showclients(m->stack);
+		hideclients(m->stack);
 		restack(m);
-	} else for (m = mons; m; m = m->next)
+	} else for (m = mons; m; m = m->next) {
 		arrangemon(m);
+		showclients(m->stack);
+		hideclients(m->stack);
+	}
 }
 
 void
@@ -2064,6 +2068,8 @@ manage(Window w, XWindowAttributes *wa)
 	if (ISVISIBLE(c))
 		c->mon->sel = c;
 	arrange(c->mon);
+	if (!ISVISIBLE(c) && !c->isfloating && !c->isfullscreen)
+		presizeoffscreen(c);
 	XMapWindow(dpy, c->win);
 	if (term)
 		swallow(term, c);
@@ -3253,7 +3259,123 @@ seturgent(Client *c, int urg)
 }
 
 void
-showhide(Client *c)
+presizeoffscreen(Client *c)
+{
+	Monitor *m = c->mon;
+	Client *i;
+	const Layout *lt;
+	XWindowChanges wc;
+	unsigned int tagidx = 0, n = 0, bit;
+	int tx, ty, tw, th, bw;
+	int target_nmaster;
+	float target_mfact;
+
+	if (!c || !m || ISVISIBLE(c) || c->isfloating || c->isfullscreen || c->ishidden)
+		return;
+
+	for (bit = 0; bit < LENGTH(tags); bit++) {
+		if (c->tags & (1U << bit)) {
+			tagidx = bit + 1;
+			break;
+		}
+	}
+	lt = m->pertag->ltidxs[tagidx][m->pertag->sellts[tagidx]];
+	for (bit = 0; bit < LENGTH(tag_view_layout_policies); bit++) {
+		if (tag_view_layout_policies[bit].tagmask == c->tags && tag_view_layout_policies[bit].layout) {
+			lt = tag_view_layout_policies[bit].layout;
+			break;
+		}
+	}
+	if (!lt || !lt->arrange)
+		return;
+
+	for (i = m->clients; i; i = i->next) {
+		if (!i->isfloating && !i->ishidden && (i->tags & c->tags))
+			n++;
+	}
+	if (n == 0)
+		return;
+
+	target_nmaster = m->pertag->nmasters[tagidx];
+	target_mfact = m->pertag->mfacts[tagidx];
+
+	bw = c->bw;
+	if (lt->arrange == monocle || (lt->arrange == tile && n == 1)) {
+		tx = m->wx;
+		ty = m->wy;
+		tw = m->ww - 2 * c->bw;
+		th = m->wh - 2 * c->bw;
+		applysizehints(c, &tx, &ty, &tw, &th, 0);
+		tw += 2 * c->bw;
+		th += 2 * c->bw;
+		bw = 0;
+	} else if (lt->arrange == tile) {
+		int g = (int)gappx;
+		int mw = target_nmaster ? (int)((m->ww - g) * target_mfact) : 0;
+		if (!insert_win_at_end && target_nmaster > 0) {
+			int r = MIN((int)n, target_nmaster);
+			tx = m->wx;
+			ty = m->wy;
+			tw = mw - 2 * c->bw;
+			th = (m->wh - g * (r - 1)) / r - 2 * c->bw;
+		} else {
+			int stack_n = MAX((int)n - target_nmaster, 1);
+			tx = m->wx + mw + g;
+			ty = m->wy;
+			tw = m->ww - mw - g - 2 * c->bw;
+			th = (m->wh - g * (stack_n - 1)) / stack_n - 2 * c->bw;
+		}
+		applysizehints(c, &tx, &ty, &tw, &th, 0);
+	} else if (lt->arrange == magicgrid && n == 1) {
+		int gap = (int)gappx;
+		int dynamic_title_height = titlebarheight();
+		int cw = (int)((m->ww - 2 * gap) * 0.6);
+		int ch = (int)((m->wh - 2 * gap) * 0.6);
+		tx = m->wx + (m->ww - cw) / 2 + gap;
+		ty = m->wy + (m->wh - ch) / 2 + gap + dynamic_title_height;
+		tw = MAX(cw - 2 * c->bw, 1);
+		th = MAX(ch - 2 * c->bw - dynamic_title_height, 1);
+		applysizehints(c, &tx, &ty, &tw, &th, 0);
+		tw += 2 * c->bw;
+		th += 2 * c->bw;
+		bw = 0;
+	} else {
+		return;
+	}
+
+	if (tw <= 0 || th <= 0)
+		return;
+
+	c->oldx = c->x; c->x = tx;
+	c->oldy = c->y; c->y = ty;
+	c->oldw = c->w; c->w = tw;
+	c->oldh = c->h; c->h = th;
+
+	wc.x = WIDTH(c) * -2;
+	wc.y = c->y;
+	wc.width = c->w;
+	wc.height = c->h;
+	wc.border_width = bw;
+	XConfigureWindow(dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
+	configure(c);
+}
+
+void
+hideclients(Client *c)
+{
+	if (!c)
+		return;
+	if (!ISVISIBLE(c) && !c->ishidden) {
+		/* hide clients bottom up (but not manually hidden ones) */
+		hideclients(c->snext);
+		XMoveWindow(dpy, c->win, WIDTH(c) * -2, c->y);
+	} else {
+		hideclients(c->snext);
+	}
+}
+
+void
+showclients(Client *c)
 {
 	if (!c)
 		return;
@@ -3262,15 +3384,15 @@ showhide(Client *c)
 		XMoveWindow(dpy, c->win, c->x, c->y);
 		if ((!c->mon->lt[c->mon->sellt]->arrange || c->isfloating) && !c->isfullscreen)
 			resize(c, c->x, c->y, c->w, c->h, 0);
-		showhide(c->snext);
-	} else if (!c->ishidden) {
-		/* hide clients bottom up (but not manually hidden ones) */
-		showhide(c->snext);
-		XMoveWindow(dpy, c->win, WIDTH(c) * -2, c->y);
-	} else {
-		/* Skip manually hidden windows */
-		showhide(c->snext);
 	}
+	showclients(c->snext);
+}
+
+void
+showhide(Client *c)
+{
+	showclients(c);
+	hideclients(c);
 }
 
 void

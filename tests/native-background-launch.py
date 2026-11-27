@@ -154,9 +154,14 @@ def check():
                 wm_class = run('xprop', '-id', alacritty_win, 'WM_CLASS')
                 assert 'Alacritty' in wm_class and 'Xephyr' not in wm_class, wm_class
                 assert get_desktop(alacritty_win) == tag - 1, get_desktop(alacritty_win)
-                geom = get_geometry(alacritty_win)
-                assert geom['X'] < 0, geom
-                print(f'PASS: native Alacritty opened on workspace {tag} ({wm_class})', flush=True)
+                alacritty_offscreen_geom = get_geometry(alacritty_win)
+                assert alacritty_offscreen_geom['X'] < 0, alacritty_offscreen_geom
+                assert alacritty_offscreen_geom['WIDTH'] > 800 and alacritty_offscreen_geom['HEIGHT'] > 500, alacritty_offscreen_geom
+                print(
+                    f'PASS: native Alacritty opened pre-sized on workspace {tag} '
+                    f'({wm_class}, offscreen={alacritty_offscreen_geom})',
+                    flush=True,
+                )
             else:
                 print('INFO: alacritty not installed in VM; skipping alacritty-specific check', flush=True)
 
@@ -228,14 +233,28 @@ def check():
                 assert get_desktop(after_tok_win) == 0, get_desktop(after_tok_win)
                 print('PASS: terminal launch consumed token so child apps do not leak to old workspace', flush=True)
 
-            # 7. Switch to workspace 8 and verify Alacritty tiles properly inside screen bounds
+            # 7. Switch to workspace 8 (after closing extra windows on tag) and verify zero-resize switch
             if alacritty_win:
+                # Close extra test windows placed on tag so Alacritty is alone on workspace 8 again
+                for extra_win in list(windows_to_close):
+                    if extra_win != alacritty_win and get_desktop(extra_win) == tag - 1:
+                        kill_window(extra_win)
+                        windows_to_close.remove(extra_win)
+                time.sleep(0.3)
                 run('xdotool', 'set_desktop', str(tag - 1))
                 time.sleep(0.3)
                 vis_geom = get_geometry(alacritty_win)
-                assert vis_geom['X'] >= 0 and vis_geom['WIDTH'] > 300 and vis_geom['HEIGHT'] > 200, vis_geom
+                assert vis_geom['X'] >= 0 and vis_geom['WIDTH'] == alacritty_offscreen_geom['WIDTH'], (
+                    alacritty_offscreen_geom, vis_geom
+                )
+                assert vis_geom['HEIGHT'] == alacritty_offscreen_geom['HEIGHT'], (
+                    alacritty_offscreen_geom, vis_geom
+                )
                 run('xdotool', 'set_desktop', '0')
-                print(f'PASS: Alacritty tiled normally when viewing workspace {tag} ({vis_geom})', flush=True)
+                print(
+                    f'PASS: Alacritty matched pre-sized geometry with zero resize when viewing workspace {tag} ({vis_geom})',
+                    flush=True,
+                )
 
             # 8. Verify launching via open-bg.py from inside a foreground Alacritty is NOT swallowed
             if alacritty_bin:
