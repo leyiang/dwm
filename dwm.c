@@ -103,7 +103,7 @@ enum { SchemeNorm, SchemeSel, SchemeStatus, SchemeTagsSel, SchemeTagsNorm, Schem
 enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
        NetSystemTray, NetSystemTrayOP, NetSystemTrayOrientation, NetSystemTrayOrientationHorz,
        NetWMFullscreen, NetActiveWindow, NetWMWindowType,
-       NetWMWindowTypeDialog, NetClientList, NetDesktopNames, NetDesktopViewport, NetNumberOfDesktops, NetCurrentDesktop, NetWMDesktop, NetLast }; /* EWMH atoms */
+       NetWMWindowTypeDialog, NetClientList, NetDesktopNames, NetDesktopViewport, NetNumberOfDesktops, NetCurrentDesktop, NetWMDesktop, NetStartupId, NetLast }; /* EWMH atoms */
 enum { Manager, Xembed, XembedInfo, XLast }; /* Xembed atoms */
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMLast }; /* default atoms */
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
@@ -240,6 +240,11 @@ static int shouldstartfocusoverlay(Client *oldsel, Client *c);
 static void focusmon(const Arg *arg);
 static void focusstack(const Arg *arg);
 static Atom getatomprop(Client *c, Atom prop);
+static int parsebgtag(const char *s, unsigned int *tagmask);
+static int parsebgstartupid(const char *id, unsigned int *tagmask, time_t *expires, char *token, size_t tokenlen);
+static int isbgtokenconsumed(const char *token);
+static void consumebgtoken(const char *token);
+static int getbglaunchtarget(Client *c, unsigned int *tagmask, char *token, size_t tokenlen);
 static int getrootptr(int *x, int *y);
 static long getstate(Window w);
 static unsigned int getsystraywidth();
@@ -398,6 +403,9 @@ static unsigned int dynamictags = 0;   /* Bitmask for dynamic workspace tracking
 static Atom dwmcurrentws;              /* X11 atom for current workspace */
 static Atom dwmactivews;               /* X11 atom for active workspaces */
 static Atom dwmscriptcmd;              /* X11 atom for script commands */
+#define BG_CONSUMED_TOKEN_CAP 32
+static char consumedbgtokens[BG_CONSUMED_TOKEN_CAP][64];
+static unsigned int consumedbgtokenidx = 0;
 
 static xcb_connection_t *xcon;
 
@@ -416,6 +424,212 @@ struct Pertag {
 /* compile-time check if all tags fit into an unsigned int bit array. */
 struct NumTags { char limitexceeded[LENGTH(tags) > 31 ? -1 : 1]; };
 
+static int
+parsebgtag(const char *s, unsigned int *tagmask)
+{
+	char *end;
+	unsigned long num;
+
+	if (!s || !s[0] || !tagmask)
+		return 0;
+	if ((s[0] == 'b' || s[0] == 'B') && s[1] == '\0') {
+		if (LENGTH(tags) >= 10) {
+			*tagmask = 1U << 9;
+			return 1;
+		}
+		return 0;
+	}
+	if ((s[0] == 'w' || s[0] == 'W') && (s[1] == 's' || s[1] == 'S')) {
+		if (s[2] < '0' || s[2] > '9')
+			return 0;
+		num = strtoul(s + 2, &end, 10);
+		if (*end == '\0' && num >= 1 && LENGTH(tags) + num - 1 < 31) {
+			*tagmask = 1U << (LENGTH(tags) + num - 1);
+			return 1;
+		}
+		return 0;
+	}
+	if (s[0] < '0' || s[0] > '9')
+		return 0;
+	num = strtoul(s, &end, 10);
+	if (*end == '\0' && num >= 1 && num <= LENGTH(tags)) {
+		*tagmask = 1U << (num - 1);
+		return 1;
+	}
+	return 0;
+}
+
+static int
+parsebgstartupid(const char *id, unsigned int *tagmask, time_t *expires, char *token, size_t tokenlen)
+{
+	const char *p, *dash1, *dash2, *tokend;
+	char tagbuf[32], expbuf[32];
+	char *end;
+	unsigned long expval = 0;
+	size_t len;
+
+	if (!id || strncmp(id, "dwm-bg-", 7) != 0)
+		return 0;
+	p = id + 7;
+	dash1 = strchr(p, '-');
+	if (!dash1)
+		return 0;
+	len = (size_t)(dash1 - p);
+	if (len == 0 || len >= sizeof(tagbuf))
+		return 0;
+	memcpy(tagbuf, p, len);
+	tagbuf[len] = '\0';
+	if (!parsebgtag(tagbuf, tagmask))
+		return 0;
+
+	p = dash1 + 1;
+	dash2 = strchr(p, '-');
+	if (dash2)
+		len = (size_t)(dash2 - p);
+	else
+		len = strcspn(p, "_");
+	if (len == 0 || len >= sizeof(expbuf))
+		return 0;
+	memcpy(expbuf, p, len);
+	expbuf[len] = '\0';
+	if (expbuf[0] < '0' || expbuf[0] > '9')
+		return 0;
+	expval = strtoul(expbuf, &end, 10);
+	if (*end != '\0')
+		return 0;
+	if (expires)
+		*expires = (time_t)expval;
+
+	if (token && tokenlen > 0) {
+		token[0] = '\0';
+		if (dash2 && dash2[1]) {
+			p = dash2 + 1;
+			tokend = p + strcspn(p, "_");
+			len = (size_t)(tokend - p);
+			if (len >= tokenlen)
+				len = tokenlen - 1;
+			memcpy(token, p, len);
+			token[len] = '\0';
+		}
+	}
+	return 1;
+}
+
+static int
+isbgtokenconsumed(const char *token)
+{
+	unsigned int i;
+
+	if (!token || !token[0])
+		return 0;
+	for (i = 0; i < BG_CONSUMED_TOKEN_CAP; i++) {
+		if (consumedbgtokens[i][0] && strcmp(consumedbgtokens[i], token) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static void
+consumebgtoken(const char *token)
+{
+	if (!token || !token[0] || isbgtokenconsumed(token))
+		return;
+	strncpy(consumedbgtokens[consumedbgtokenidx], token, sizeof(consumedbgtokens[0]) - 1);
+	consumedbgtokens[consumedbgtokenidx][sizeof(consumedbgtokens[0]) - 1] = '\0';
+	consumedbgtokenidx = (consumedbgtokenidx + 1) % BG_CONSUMED_TOKEN_CAP;
+}
+
+static int
+getbglaunchtarget(Client *c, unsigned int *tagmask, char *token, size_t tokenlen)
+{
+	char startupid[256];
+	unsigned int mask = 0;
+	time_t expires = 0;
+	time_t now = time(NULL);
+	char tokbuf[64] = "";
+
+	if (token && tokenlen > 0)
+		token[0] = '\0';
+
+	if (gettextprop(c->win, netatom[NetStartupId], startupid, sizeof(startupid))) {
+		if (parsebgstartupid(startupid, &mask, &expires, tokbuf, sizeof(tokbuf))) {
+			if ((expires == 0 || now <= expires) && !isbgtokenconsumed(tokbuf)) {
+				*tagmask = mask;
+				if (token && tokenlen > 0) {
+					strncpy(token, tokbuf, tokenlen - 1);
+					token[tokenlen - 1] = '\0';
+				}
+				return 1;
+			}
+		}
+	}
+
+#ifdef __linux__
+	if (c->pid > 0) {
+		FILE *f;
+		char path[64], chunk[4096], entry[128];
+		char tagbuf[32] = "", expbuf[32] = "";
+		size_t nread, i, elen = 0;
+		int overflow = 0;
+
+		tokbuf[0] = '\0';
+		snprintf(path, sizeof(path), "/proc/%u/environ", (unsigned)c->pid);
+		if ((f = fopen(path, "rb"))) {
+			while ((nread = fread(chunk, 1, sizeof(chunk), f)) > 0) {
+				for (i = 0; i < nread; i++) {
+					if (chunk[i] == '\0') {
+						if (!overflow && elen > 0) {
+							entry[elen] = '\0';
+							if (strncmp(entry, "DWM_BG_TAG=", 11) == 0) {
+								strncpy(tagbuf, entry + 11, sizeof(tagbuf) - 1);
+								tagbuf[sizeof(tagbuf) - 1] = '\0';
+							} else if (strncmp(entry, "DWM_BG_EXPIRES=", 15) == 0) {
+								strncpy(expbuf, entry + 15, sizeof(expbuf) - 1);
+								expbuf[sizeof(expbuf) - 1] = '\0';
+							} else if (strncmp(entry, "DWM_BG_TOKEN=", 13) == 0) {
+								strncpy(tokbuf, entry + 13, sizeof(tokbuf) - 1);
+								tokbuf[sizeof(tokbuf) - 1] = '\0';
+							}
+						}
+						elen = 0;
+						overflow = 0;
+					} else if (!overflow) {
+						if (elen + 1 < sizeof(entry))
+							entry[elen++] = chunk[i];
+						else
+							overflow = 1;
+					}
+				}
+			}
+			fclose(f);
+		}
+		if (tagbuf[0] && parsebgtag(tagbuf, &mask)) {
+			if (expbuf[0]) {
+				char *end;
+				unsigned long expval;
+
+				if (expbuf[0] < '0' || expbuf[0] > '9')
+					return 0;
+				expval = strtoul(expbuf, &end, 10);
+				if (*end != '\0')
+					return 0;
+				if (expval > 0 && now > (time_t)expval)
+					return 0;
+			}
+			if (isbgtokenconsumed(tokbuf))
+				return 0;
+			*tagmask = mask;
+			if (token && tokenlen > 0) {
+				strncpy(token, tokbuf, tokenlen - 1);
+				token[tokenlen - 1] = '\0';
+			}
+			return 1;
+		}
+	}
+#endif
+	return 0;
+}
+
 /* function implementations */
 void
 applyrules(Client *c)
@@ -427,6 +641,8 @@ applyrules(Client *c)
 	XClassHint ch = { NULL, NULL };
 	char *tagend;
 	unsigned long backgroundtag;
+	unsigned int bgtagmask = 0;
+	char bgtoken[64] = "";
 
 	/* rule matching */
 	c->isfloating = 0;
@@ -458,12 +674,17 @@ applyrules(Client *c)
 			c->isfloating = 1;
 			c->noswallow = 1;
 		}
+	} else if (getbglaunchtarget(c, &bgtagmask, bgtoken, sizeof(bgtoken))) {
+		c->tags = bgtagmask;
+		c->noswallow = 1;
+		if (c->isterminal && bgtoken[0])
+			consumebgtoken(bgtoken);
 	}
 	if (ch.res_class)
 		XFree(ch.res_class);
 	if (ch.res_name)
 		XFree(ch.res_name);
-	c->tags = c->tags & TAGMASK ? c->tags & TAGMASK : c->mon->tagset[c->mon->seltags];
+	c->tags = c->tags & FULLTAGMASK ? c->tags & FULLTAGMASK : c->mon->tagset[c->mon->seltags];
 }
 
 int
@@ -871,10 +1092,14 @@ clientmessage(XEvent *e)
 			setfullscreen(c, (cme->data.l[0] == 1 /* _NET_WM_STATE_ADD    */
 				|| (cme->data.l[0] == 2 /* _NET_WM_STATE_TOGGLE */ && !c->isfullscreen)));
 	} else if (cme->message_type == netatom[NetActiveWindow]) {
-		focus(c);
-		restack(selmon);
-		if (selmon->lt[selmon->sellt]->arrange == monocle)
-			arrange(selmon);
+		if (ISVISIBLE(c)) {
+			focus(c);
+			restack(selmon);
+			if (selmon->lt[selmon->sellt]->arrange == monocle)
+				arrange(selmon);
+		} else if (c != selmon->sel && !c->isurgent) {
+			seturgent(c, 1);
+		}
 	}
 }
 
@@ -2757,7 +2982,8 @@ setfocus(Client *c)
 void
 setfullscreen(Client *c, int fullscreen)
 {
-	hidefocusoverlay();
+	if (ISVISIBLE(c))
+		hidefocusoverlay();
 	if (fullscreen && !c->isfullscreen) {
 		XChangeProperty(dpy, c->win, netatom[NetWMState], XA_ATOM, 32,
 			PropModeReplace, (unsigned char*)&netatom[NetWMFullscreen], 1);
@@ -2769,7 +2995,10 @@ setfullscreen(Client *c, int fullscreen)
 		if (c->titlewin)
 			XUnmapWindow(dpy, c->titlewin);
 		resizeclient(c, c->mon->mx, c->mon->my, c->mon->mw, c->mon->mh);
-		XRaiseWindow(dpy, c->win);
+		if (ISVISIBLE(c))
+			XRaiseWindow(dpy, c->win);
+		else
+			showhide(c->mon->stack);
 	} else if (!fullscreen && c->isfullscreen){
 		XChangeProperty(dpy, c->win, netatom[NetWMState], XA_ATOM, 32,
 			PropModeReplace, (unsigned char*)0, 0);
@@ -2943,6 +3172,7 @@ setup(void)
 	netatom[NetCurrentDesktop] = XInternAtom(dpy, "_NET_CURRENT_DESKTOP", False);
 	netatom[NetDesktopNames] = XInternAtom(dpy, "_NET_DESKTOP_NAMES", False);
 	netatom[NetWMDesktop] = XInternAtom(dpy, "_NET_WM_DESKTOP", False);
+	netatom[NetStartupId] = XInternAtom(dpy, "_NET_STARTUP_ID", False);
 	/* init dwm workspace atoms */
 	dwmcurrentws = XInternAtom(dpy, "_DWM_CURRENT_WORKSPACE", False);
 	dwmactivews = XInternAtom(dpy, "_DWM_ACTIVE_WORKSPACES", False);

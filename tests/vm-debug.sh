@@ -16,7 +16,7 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-$REPO_ROOT/vm-artifacts}"
 BUILD_LOG="${BUILD_LOG:-/tmp/dwm-vm-build.log}"
 
 usage() {
-    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|layout-check|background-check|resize-check|title-check}"
+    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|layout-check|background-check|native-bg-check|resize-check|title-check}"
     exit 1
 }
 
@@ -115,6 +115,13 @@ background_check() {
     remote_ssh "DISPLAY=:0 XAUTHORITY=/run/user/\$(id -u)/gdm/Xauthority python3 '/home/$VM_USER/dwm-background/tests/background-workspace.py'"
 }
 
+native_bg_check() {
+    remote_ssh "mkdir -p '/home/$VM_USER/dwm-background/tools' '/home/$VM_USER/dwm-background/tests'"
+    remote_scp_to "$REPO_ROOT/tools/open-bg.py" "/home/$VM_USER/dwm-background/tools/open-bg.py"
+    remote_scp_to "$SCRIPT_DIR/native-background-launch.py" "/home/$VM_USER/dwm-background/tests/native-background-launch.py"
+    remote_ssh "DISPLAY=:0 XAUTHORITY=/run/user/\$(id -u)/gdm/Xauthority python3 '/home/$VM_USER/dwm-background/tests/native-background-launch.py'"
+}
+
 resize_check() {
     remote_scp_to "$SCRIPT_DIR/resize-drag.py" "/home/$VM_USER/dwm-resize-check.py"
     remote_ssh "DISPLAY=:0 XAUTHORITY=/run/user/\$(id -u)/gdm/Xauthority python3 '/home/$VM_USER/dwm-resize-check.py'"
@@ -132,6 +139,7 @@ case "${1:-}" in
     repro) repro ;;
     layout-check) layout_check ;;
     background-check) background_check ;;
+    native-bg-check) native_bg_check ;;
     resize-check) resize_check ;;
     title-check)
         shift

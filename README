@@ -106,6 +106,39 @@ Common commands:
     ./tests/vm-debug.sh log
     ./tests/vm-debug.sh repro
     ./tests/vm-debug.sh background-check
+    ./tests/vm-debug.sh native-bg-check
+
+
+后台打开普通原生窗口
+--------------------
+目标：不需要 Xephyr，直接把任意普通应用（终端、浏览器、播放器等）打开到指定
+workspace（例如 workspace 8），保留原本的平铺/浮动与窗口标题，且不切屏、不抢焦点、
+不被当前终端吞并（swallow）。
+
+使用方式：
+
+    python3 tools/open-bg.py --tag 8 -- alacritty
+    python3 tools/open-bg.py --tag b -- thunar
+    python3 tools/open-bg.py --tag ws1 -- mpv video.mp4
+
+也可以直接设置环境变量启动：
+
+    DWM_BG_TAG=8 alacritty &
+
+说明：
+- `--tag` 支持固定标签 `1`–`10`、`b` 以及动态工作区 `ws1`–`ws20`。
+- `tools/open-bg.py` 启动目标命令后会立刻返回，不会常驻后台；如需等待退出可加 `--wait`。
+- 脚本会同时设置带有效期的 `DWM_BG_TAG` / `DWM_BG_EXPIRES` / `DWM_BG_TOKEN`（默认 15 秒，
+  可通过 `--timeout` 调整）以及 `DESKTOP_STARTUP_ID`；终端类窗口（`isterminal`）命中后
+  会立即消费该 token，避免之后在那个终端里启动的子窗口被误路由。
+- 后台不可见窗口发出的 `_NET_ACTIVE_WINDOW` 不会抢占当前焦点（仅标记 urgent）。
+- 已知边界：如果目标软件是已经在前台运行主进程的单实例应用，且不透传 `_NET_STARTUP_ID`，
+  可能需要使用独立实例参数（如 `--new-instance`）。
+
+VM 验证：
+
+    ./tests/vm-debug.sh deploy
+    ./tests/vm-debug.sh native-bg-check
 
 
 后台 workspace 操作（实验功能）
