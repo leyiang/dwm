@@ -106,3 +106,9 @@ VM_IP=192.168.122.50 VM_USER=test VM_PASS=test ./tests/vm-debug.sh status
 ## 修改原则
 
 处理这类问题时，优先保留“生命周期正确”的核心修复，避免把临时调试日志、额外兜底显隐逻辑长期留在主代码里。
+
+## Git 提交规则
+
+- MUST 使用中文提交信息。
+- MAY 保留必要的英文标签或技术术语，例如 `feat`、`fix`、`docs`、`JWT`、`Docker`、`OpenWebUI`。
+- SHOULD 使用类似 `docs: 更新后端分层说明` 的格式，不使用纯英文说明。
