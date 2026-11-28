@@ -11,12 +11,14 @@ VM_PASS="${VM_PASS:-test}"
 REMOTE_DWM_TMP="/home/$VM_USER/dwm.new"
 REMOTE_REPRO_TMP="/home/$VM_USER/debug-magicgrid-titlebar-remote.sh"
 REMOTE_LAYOUT_CHECK_TMP="/home/$VM_USER/debug-workspace-layout-remote.sh"
+REMOTE_FLASH_REPRO_TMP="/home/$VM_USER/repro-alacritty-flash-remote.sh"
 REMOTE_ARTIFACT_TAR="/tmp/dwm-repro-artifacts.tar"
+REMOTE_FLASH_ARTIFACT_TAR="/tmp/dwm-flash-artifacts.tar"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$REPO_ROOT/vm-artifacts}"
 BUILD_LOG="${BUILD_LOG:-/tmp/dwm-vm-build.log}"
 
 usage() {
-    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|layout-check|background-check|native-bg-check|resize-check|title-check}"
+    echo "Usage: $0 {build|deploy|setup-tools|status|log|repro|flash-repro|layout-check|background-check|native-bg-check|resize-check|title-check}"
     exit 1
 }
 
@@ -54,14 +56,18 @@ build() {
     )
 }
 
-deploy() {
-    build
+deploy_bin() {
     remote_scp_to "$REPO_ROOT/dwm-qemu" "$REMOTE_DWM_TMP"
     remote_ssh "set -eu;
         echo '$VM_PASS' | sudo -S cp /usr/local/bin/dwm /usr/local/bin/dwm.backup;
         echo '$VM_PASS' | sudo -S install -m 0755 '$REMOTE_DWM_TMP' /usr/local/bin/dwm;
         : > /tmp/dwm.log;
         echo '$VM_PASS' | sudo -S systemctl restart gdm3"
+}
+
+deploy() {
+    build
+    deploy_bin
 }
 
 setup_tools() {
@@ -103,6 +109,24 @@ repro() {
     echo "Artifacts saved to $ARTIFACT_DIR"
 }
 
+flash_repro() {
+    mode="${1:-baseline}"
+    out_name="${2:-dwm-alacritty-flash.mp4}"
+    mkdir -p "$ARTIFACT_DIR"
+    if [ "$mode" = "dwmcomp" ] || [ "$mode" = "dwmcomp-contrast" ] || [ "$mode" = "dwmcomp-lifecycle" ]; then
+        remote_scp_to "$REPO_ROOT/tools/dwmcomp" "/home/$VM_USER/dwmcomp"
+        remote_ssh "chmod +x '/home/$VM_USER/dwmcomp'"
+    fi
+    remote_scp_to "$SCRIPT_DIR/repro-alacritty-flash-remote.sh" "$REMOTE_FLASH_REPRO_TMP"
+    remote_ssh "chmod +x '$REMOTE_FLASH_REPRO_TMP' && '$REMOTE_FLASH_REPRO_TMP' '$mode'"
+    remote_scp_from "$REMOTE_FLASH_ARTIFACT_TAR" "$ARTIFACT_DIR/dwm-flash-artifacts.tar"
+    tar -xf "$ARTIFACT_DIR/dwm-flash-artifacts.tar" -C "$ARTIFACT_DIR"
+    if [ "$out_name" != "dwm-alacritty-flash.mp4" ]; then
+        cp -f "$ARTIFACT_DIR/dwm-alacritty-flash.mp4" "$ARTIFACT_DIR/$out_name"
+    fi
+    echo "Flash repro video saved to $ARTIFACT_DIR/$out_name"
+}
+
 layout_check() {
     remote_scp_to "$SCRIPT_DIR/debug-workspace-layout-remote.sh" "$REMOTE_LAYOUT_CHECK_TMP"
     remote_ssh "chmod +x '$REMOTE_LAYOUT_CHECK_TMP' && '$REMOTE_LAYOUT_CHECK_TMP'"
@@ -133,10 +157,15 @@ resize_check() {
 case "${1:-}" in
     build) build ;;
     deploy) deploy ;;
+    deploy-bin) deploy_bin ;;
     setup-tools) setup_tools ;;
     status) status ;;
     log) log ;;
     repro) repro ;;
+    flash-repro)
+        shift
+        flash_repro "$@"
+        ;;
     layout-check) layout_check ;;
     background-check) background_check ;;
     native-bg-check) native_bg_check ;;

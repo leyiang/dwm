@@ -19,8 +19,12 @@ config.h:
 dwm: ${OBJ}
 	${CC} -o $@ ${OBJ} ${LDFLAGS}
 
+dwmcomp: tools/dwmcomp.c
+	rm -f tools/dwmcomp
+	${CC} -O2 -Wall -Wextra -o tools/dwmcomp tools/dwmcomp.c -lXcomposite -lXdamage -lXfixes -lXrender -lXext -lX11
+
 clean:
-	rm -f dwm dwm-qemu ${OBJ} dwm-${VERSION}.tar.gz
+	rm -f dwm dwm-qemu tools/dwmcomp ${OBJ} dwm-${VERSION}.tar.gz
 
 dist: clean
 	mkdir -p dwm-${VERSION}
@@ -55,4 +59,4 @@ qemu: clean
 clean-config:
 	@if [ -f config.h.backup ]; then mv config.h.backup config.h; else rm -f config.h; fi
 
-.PHONY: all clean dist install uninstall qemu clean-config
+.PHONY: all clean dist install uninstall qemu clean-config dwmcomp
