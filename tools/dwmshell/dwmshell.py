@@ -3,10 +3,10 @@
 dwmshell - Lightweight Desktop Widget Shell for dwm + dwmcomp.
 
 Design principles:
-- Zero changes to dwm (uses override_redirect ARGB windows kept pinned at the
-  bottom of the X11 root stack, strictly below all normal windows and barwin).
+- Standard EWMH desktop windows (_NET_WM_WINDOW_TYPE_DESKTOP): dwm owns window
+  stacking, borderless placement, no-focus behavior, and cross-workspace visibility.
 - Works seamlessly with dwmcomp (32-bit ARGB transparency via PictOpOver;
-  override_redirect windows never trigger dwmcomp's map/resize freeze).
+  desktop windows are excluded from dwmcomp's map/resize freeze).
 - Drop-in HTML/CSS/JS widgets with live hot-reload + localhost JSON HTTP API
   for scripts and AI agents.
 """
@@ -245,12 +245,14 @@ class WidgetInstance:
         self.xid: int | None = None
         self.data: Any = meta.get("data")
 
-        self.win = Gtk.Window(type=Gtk.WindowType.POPUP)
+        self.win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+        self.win.set_type_hint(Gdk.WindowTypeHint.DESKTOP)
         self.win.set_title(f"dwmshell:{wid}")
         self.win.set_decorated(False)
         self.win.set_skip_taskbar_hint(True)
         self.win.set_skip_pager_hint(True)
         self.win.set_accept_focus(False)
+        self.win.set_focus_on_map(False)
         self.win.set_app_paintable(True)
 
         screen = self.win.get_screen()
@@ -364,7 +366,6 @@ class DwmShell:
         self.widgets: dict[str, WidgetInstance] = {}
         self.widget_dirs: dict[str, Path] = {}
         self.occupied = False
-        self._lower_scheduled = False
         self._prev_cpu: tuple[int, int] | None = None
         self._aqi_cache: tuple[float, dict[str, Any]] | None = None
         self._lock = threading.RLock()
@@ -384,13 +385,11 @@ class DwmShell:
         )
         self.anchor_webview = WebKit2.WebView()
 
-        # X11 connection for bottom-stacking and active-window observation
+        # X11 connection for observing _NET_ACTIVE_WINDOW (dimming when occupied)
         self.xdisp = xdisplay.Display()
         self.xroot = self.xdisp.screen().root
         self.atom_active = self.xdisp.intern_atom("_NET_ACTIVE_WINDOW")
-        self.xroot.change_attributes(
-            event_mask=X.SubstructureNotifyMask | X.PropertyChangeMask
-        )
+        self.xroot.change_attributes(event_mask=X.PropertyChangeMask)
         self.xdisp.flush()
         self.occupied = self._query_occupied()
 
@@ -420,64 +419,13 @@ class DwmShell:
             pass
         return False
 
-    def _widget_xids(self) -> set[int]:
-        return {inst.xid for inst in self.widgets.values() if inst.xid is not None}
-
-    def schedule_lower(self) -> None:
-        if not self._lower_scheduled:
-            self._lower_scheduled = True
-            GLib.idle_add(self._ensure_bottom_layer)
-
-    def _ensure_bottom_layer(self) -> bool:
-        self._lower_scheduled = False
-        xids = self._widget_xids()
-        if not xids:
-            return False
-
-        try:
-            children = [int(w.id) for w in self.xroot.query_tree().children]
-        except Exception:
-            return False
-
-        # Check whether all widget windows sit strictly below every non-widget window.
-        seen_non_widget = False
-        to_lower: list[int] = []
-        for cid in children:
-            if cid in xids:
-                if seen_non_widget:
-                    to_lower.append(cid)
-            else:
-                seen_non_widget = True
-
-        if to_lower:
-            for cid in to_lower:
-                try:
-                    w = self.xdisp.create_resource_object("window", cid)
-                    w.configure(stack_mode=X.Below)
-                except Exception:
-                    pass
-            self.xdisp.flush()
-            self.log(f"lowered {len(to_lower)} widget window(s) to desktop bottom")
-        return False
-
     def _on_x_event(self, _source: int, _cond: GLib.IOCondition) -> bool:
-        xids = self._widget_xids()
-        need_lower = False
         active_changed = False
 
         while self.xdisp.pending_events():
             ev = self.xdisp.next_event()
-            etype = ev.type
-            if etype in (X.MapNotify, X.ConfigureNotify, X.CirculateNotify):
-                wid = int(ev.window.id)
-                if wid not in xids:
-                    need_lower = True
-            elif etype == X.PropertyNotify:
-                if ev.atom == self.atom_active:
-                    active_changed = True
-
-        if need_lower:
-            self.schedule_lower()
+            if ev.type == X.PropertyNotify and ev.atom == self.atom_active:
+                active_changed = True
 
         if active_changed:
             new_occ = self._query_occupied()
@@ -543,7 +491,6 @@ class DwmShell:
                 self.log(f"load widget {wid} from {wdir}")
                 inst = WidgetInstance(self, wid, wdir, meta, sig)
                 self.widgets[wid] = inst
-                self.schedule_lower()
             elif existing.widget_dir != wdir or existing.signature != sig:
                 self.log(f"reload widget {wid}")
                 existing.widget_dir = wdir
@@ -552,7 +499,6 @@ class DwmShell:
                     existing.data = meta["data"]
                 existing.apply_geometry(meta)
                 existing.reload_content()
-                self.schedule_lower()
 
         return True
 

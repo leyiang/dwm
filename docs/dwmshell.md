@@ -4,8 +4,10 @@
 
 ## 核心特点
 
-- **零侵入 `dwm`，无需重新编译或重启 `dwm`**：每个小组件是独立的 32-bit ARGB `override_redirect` 窗口，由 `dwmshell` 持续压在 X11 窗口栈最底层（壁纸之上、所有应用窗口与 `barwin` 之下），不进平铺布局、不抢焦点、不影响日常使用。
-- **与 `dwmcomp` 天然配合**：`dwmcomp` 会以 `PictOpOver` 合成圆角透明背景，且不会将小组件误判为普通开窗/分屏冻结对象。
+- **基于标准 EWMH `_NET_WM_WINDOW_TYPE_DESKTOP` 协作**：
+  - `dwmshell` 创建正常的受管理窗口并声明 `DESKTOP` 类型，不再自行维护底层堆叠；
+  - `dwm` 统一负责桌面窗口的层级（始终压在普通窗口与 `barwin` 之下）、无边框、不参与平铺、不抢焦点、跨工作区显示、且不污染状态栏 tag 指示与焦点脉冲计数；
+  - `dwmcomp` 识别 `DESKTOP` 窗口类型并排除开窗/缩放/关窗冻结，同时以 `PictOpOver` 合成圆角透明卡片。
 - **文件夹热加载**：直接往 `~/.config/dwmshell/widgets/` 放一个包含 `widget.json` 和 `index.html` 的目录，1 秒内自动生效，编辑立即热刷新。
 - **本地 HTTP API（适合脚本与 AI Agent）**：默认监听 `http://127.0.0.1:17777`，可动态创建/更新/推送数据/删除小组件。
 

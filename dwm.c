@@ -103,7 +103,7 @@ enum { SchemeNorm, SchemeSel, SchemeStatus, SchemeTagsSel, SchemeTagsNorm, Schem
 enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
        NetSystemTray, NetSystemTrayOP, NetSystemTrayOrientation, NetSystemTrayOrientationHorz,
        NetWMFullscreen, NetActiveWindow, NetWMWindowType,
-       NetWMWindowTypeDialog, NetClientList, NetDesktopNames, NetDesktopViewport, NetNumberOfDesktops, NetCurrentDesktop, NetWMDesktop, NetStartupId, NetLast }; /* EWMH atoms */
+       NetWMWindowTypeDialog, NetWMWindowTypeDesktop, NetClientList, NetDesktopNames, NetDesktopViewport, NetNumberOfDesktops, NetCurrentDesktop, NetWMDesktop, NetStartupId, NetLast }; /* EWMH atoms */
 enum { Manager, Xembed, XembedInfo, XLast }; /* Xembed atoms */
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMLast }; /* default atoms */
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
@@ -134,7 +134,7 @@ struct Client {
 	int basew, baseh, incw, inch, maxw, maxh, minw, minh, hintsvalid;
 	int bw, oldbw;
 	unsigned int tags;
-	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen, isterminal, noswallow, ishidden;
+	int isfixed, isfloating, isdesktop, isurgent, neverfocus, oldstate, isfullscreen, isterminal, noswallow, ishidden;
 	pid_t pid;
 	Client *next;
 	Client *snext;
@@ -929,7 +929,8 @@ buttonpress(XEvent *e)
 		i = x = 0;
 		unsigned int occ = 0;
 		for(c = m->clients; c; c=c->next)
-			occ |= c->tags;
+			if (!c->isdesktop)
+				occ |= c->tags;
 		do {
 			/* Do not reserve space for vacant tags */
 			if (!(occ & 1 << i || m->tagset[m->seltags] & 1 << i))
@@ -946,6 +947,8 @@ buttonpress(XEvent *e)
 		else
 			click = ClkWinTitle;
 	} else if ((c = wintoclient(ev->window))) {
+		if (c->isdesktop)
+			return;
 		focus(c);
 		restack(selmon);
 		XAllowEvents(dpy, ReplayPointer, CurrentTime);
@@ -1170,7 +1173,31 @@ configurerequest(XEvent *e)
 	XWindowChanges wc;
 
 	if ((c = wintoclient(ev->window))) {
-		if (ev->value_mask & CWBorderWidth)
+		if (c->isdesktop) {
+			m = c->mon;
+			if (ev->value_mask & CWX) {
+				c->oldx = c->x;
+				c->x = ev->x;
+			}
+			if (ev->value_mask & CWY) {
+				c->oldy = c->y;
+				c->y = ev->y;
+			}
+			if (ev->value_mask & CWWidth) {
+				c->oldw = c->w;
+				c->w = ev->width;
+			}
+			if (ev->value_mask & CWHeight) {
+				c->oldh = c->h;
+				c->h = ev->height;
+			}
+			c->bw = 0;
+			if (ISVISIBLE(c)) {
+				XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
+				XLowerWindow(dpy, c->win);
+			}
+			configure(c);
+		} else if (ev->value_mask & CWBorderWidth)
 			c->bw = ev->border_width;
 		else if (c->isfloating || !selmon->lt[selmon->sellt]->arrange) {
 			m = c->mon;
@@ -1444,6 +1471,8 @@ drawbar(Monitor *m)
 
 	resizebarwin(m);
 	for (c = m->clients; c; c = c->next) {
+		if (c->isdesktop)
+			continue;
 		occ |= c->tags;
 		if (c->isurgent)
 			urg |= c->tags;
@@ -1545,6 +1574,8 @@ enternotify(XEvent *e)
 	if ((ev->mode != NotifyNormal || ev->detail == NotifyInferior) && ev->window != root)
 		return;
 	c = wintoclient(ev->window);
+	if (c && c->isdesktop)
+		return;
 	m = c ? c->mon : wintomon(ev->window);
 	if (m != selmon) {
 		unfocus(selmon->sel, 1);
@@ -1582,8 +1613,10 @@ focus(Client *c)
 {
 	Client *oldsel = selmon->sel;
 
+	if (c && c->isdesktop)
+		return;
 	if (!c || !ISVISIBLE(c))
-		for (c = selmon->stack; c && !ISVISIBLE(c); c = c->snext);
+		for (c = selmon->stack; c && (!ISVISIBLE(c) || c->isdesktop); c = c->snext);
 	if (selmon->sel && selmon->sel != c)
 		unfocus(selmon->sel, 0);
 	if (c) {
@@ -1666,7 +1699,7 @@ focusoverlayvisiblecount(Monitor *m)
 	if (!m)
 		return 0;
 	for (c = m->clients; c; c = c->next)
-		if (ISVISIBLE(c))
+		if (ISVISIBLE(c) && !c->isdesktop)
 			count++;
 	return count;
 }
@@ -1735,16 +1768,16 @@ focusstack(const Arg *arg)
 	if (!selmon->sel || (selmon->sel->isfullscreen && lockfullscreen))
 		return;
 	if (arg->i > 0) {
-		for (c = selmon->sel->next; c && !ISVISIBLE(c); c = c->next);
+		for (c = selmon->sel->next; c && (!ISVISIBLE(c) || c->isdesktop); c = c->next);
 		if (!c)
-			for (c = selmon->clients; c && !ISVISIBLE(c); c = c->next);
+			for (c = selmon->clients; c && (!ISVISIBLE(c) || c->isdesktop); c = c->next);
 	} else {
 		for (i = selmon->clients; i != selmon->sel; i = i->next)
-			if (ISVISIBLE(i))
+			if (ISVISIBLE(i) && !i->isdesktop)
 				c = i;
 		if (!c)
 			for (; i; i = i->next)
-				if (ISVISIBLE(i))
+				if (ISVISIBLE(i) && !i->isdesktop)
 					c = i;
 	}
 	if (c) {
@@ -1812,7 +1845,7 @@ hide(const Arg *arg)
 	/* Focus next visible window */
 	Client *next = NULL;
 	for (next = selmon->clients; next; next = next->next) {
-		if (ISVISIBLE(next))
+		if (ISVISIBLE(next) && !next->isdesktop)
 			break;
 	}
 
@@ -1909,6 +1942,8 @@ gettextprop(Window w, Atom atom, char *text, unsigned int size)
 void
 grabbuttons(Client *c, int focused)
 {
+	if (c->isdesktop)
+		return;
 	updatenumlockmask();
 	{
 		unsigned int i, j;
@@ -2050,6 +2085,26 @@ manage(Window w, XWindowAttributes *wa)
 		term = termforwin(c);
 	}
 
+	updatewindowtype(c);
+	if (c->isdesktop) {
+		c->bw = 0;
+		wc.border_width = 0;
+		XConfigureWindow(dpy, w, CWBorderWidth, &wc);
+		configure(c);
+		updatesizehints(c);
+		updatewmhints(c);
+		XSelectInput(dpy, w, PropertyChangeMask|StructureNotifyMask);
+		attach(c);
+		attachstack(c);
+		XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
+		setclientstate(c, NormalState);
+		setwindowdesktop(c);
+		XLowerWindow(dpy, c->win);
+		XMapWindow(dpy, c->win);
+		restack(c->mon);
+		return;
+	}
+
 	if (c->x + WIDTH(c) > c->mon->wx + c->mon->ww)
 		c->x = c->mon->wx + c->mon->ww - WIDTH(c);
 	if (c->y + HEIGHT(c) > c->mon->wy + c->mon->wh)
@@ -2064,7 +2119,6 @@ manage(Window w, XWindowAttributes *wa)
 	unsigned long border_color = scheme[SchemeNorm][ColBorder].pixel | (0xFFUL << 24);
 	XSetWindowBorder(dpy, w, border_color);
 	configure(c); /* propagates border_width, if size doesn't change */
-	updatewindowtype(c);
 	updatesizehints(c);
 	updatewmhints(c);
 	XSelectInput(dpy, w, EnterWindowMask|FocusChangeMask|PropertyChangeMask|StructureNotifyMask);
@@ -2779,23 +2833,26 @@ restack(Monitor *m)
 	XWindowChanges wc;
 
 	drawbar(m);
-	if (!m->sel)
-		return;
-	if (m->sel->isfloating || !m->lt[m->sellt]->arrange)
-		XRaiseWindow(dpy, m->sel->win);
-	if (m->lt[m->sellt]->arrange) {
-		wc.stack_mode = Below;
-		wc.sibling = m->barwin;
-		for (c = m->stack; c; c = c->snext)
-			if (!c->isfloating && ISVISIBLE(c)) {
-				XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
-				wc.sibling = c->win;
-				if (m->lt[m->sellt]->arrange == magicgrid && c->titlewin) {
-					XConfigureWindow(dpy, c->titlewin, CWSibling|CWStackMode, &wc);
-					wc.sibling = c->titlewin;
+	if (m->sel) {
+		if (m->sel->isfloating || !m->lt[m->sellt]->arrange)
+			XRaiseWindow(dpy, m->sel->win);
+		if (m->lt[m->sellt]->arrange) {
+			wc.stack_mode = Below;
+			wc.sibling = m->barwin;
+			for (c = m->stack; c; c = c->snext)
+				if (!c->isfloating && ISVISIBLE(c)) {
+					XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
+					wc.sibling = c->win;
+					if (m->lt[m->sellt]->arrange == magicgrid && c->titlewin) {
+						XConfigureWindow(dpy, c->titlewin, CWSibling|CWStackMode, &wc);
+						wc.sibling = c->titlewin;
+					}
 				}
-			}
+		}
 	}
+	for (c = m->clients; c; c = c->next)
+		if (c->isdesktop && ISVISIBLE(c))
+			XLowerWindow(dpy, c->win);
 	raisefocusoverlay();
 	XSync(dpy, False);
 	while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
@@ -3230,6 +3287,7 @@ setup(void)
 	netatom[NetWMFullscreen] = XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
 	netatom[NetWMWindowType] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
 	netatom[NetWMWindowTypeDialog] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+	netatom[NetWMWindowTypeDesktop] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DESKTOP", False);
 	netatom[NetClientList] = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
 	netatom[NetDesktopViewport] = XInternAtom(dpy, "_NET_DESKTOP_VIEWPORT", False);
 	netatom[NetNumberOfDesktops] = XInternAtom(dpy, "_NET_NUMBER_OF_DESKTOPS", False);
@@ -3794,9 +3852,10 @@ updateclientlist()
 	XDeleteProperty(dpy, root, netatom[NetClientList]);
 	for (m = mons; m; m = m->next)
 		for (c = m->clients; c; c = c->next)
-			XChangeProperty(dpy, root, netatom[NetClientList],
-				XA_WINDOW, 32, PropModeAppend,
-				(unsigned char *) &(c->win), 1);
+			if (!c->isdesktop)
+				XChangeProperty(dpy, root, netatom[NetClientList],
+					XA_WINDOW, 32, PropModeAppend,
+					(unsigned char *) &(c->win), 1);
 }
 
 void updatecurrentdesktop(void){
@@ -4092,6 +4151,15 @@ updatewindowtype(Client *c)
 	Atom state = getatomprop(c, netatom[NetWMState]);
 	Atom wtype = getatomprop(c, netatom[NetWMWindowType]);
 
+	if (wtype == netatom[NetWMWindowTypeDesktop]) {
+		c->isdesktop = 1;
+		c->isfloating = 1;
+		c->neverfocus = 1;
+		c->noswallow = 1;
+		c->bw = 0;
+		c->tags = FULLTAGMASK;
+		return;
+	}
 	if (state == netatom[NetWMFullscreen])
 		setfullscreen(c, 1);
 	if (wtype == netatom[NetWMWindowTypeDialog])
@@ -4107,9 +4175,11 @@ updatewmhints(Client *c)
 		if (c == selmon->sel && wmh->flags & XUrgencyHint) {
 			wmh->flags &= ~XUrgencyHint;
 			XSetWMHints(dpy, c->win, wmh);
-		} else
+		} else if (!c->isdesktop)
 			c->isurgent = (wmh->flags & XUrgencyHint) ? 1 : 0;
-		if (wmh->flags & InputHint)
+		if (c->isdesktop)
+			c->neverfocus = 1;
+		else if (wmh->flags & InputHint)
 			c->neverfocus = !wmh->input;
 		else
 			c->neverfocus = 0;

@@ -61,6 +61,7 @@ struct CompWin {
 	XWindowAttributes a;
 	int mapped;
 	int argb;
+	int is_desktop;
 	Pixmap pixmap;
 	Picture picture;
 	Damage damage;
@@ -87,6 +88,8 @@ static Atom atom_xrootpmap;
 static Atom atom_esetroot;
 static Atom atom_dwmcomp;
 static Atom atom_focus_pulse;
+static Atom atom_wm_window_type;
+static Atom atom_wm_window_type_desktop;
 static FocusPulse focus_pulse = {0};
 static XRectangle pulse_rects[MAX_PULSE_RECTS];
 
@@ -145,9 +148,39 @@ win_on_screen(const CompWin *w)
 static int
 is_normal_onscreen_win(const CompWin *w)
 {
-	return w && w->mapped && !w->a.override_redirect &&
+	return w && w->mapped && !w->a.override_redirect && !w->is_desktop &&
 	       w->a.class == InputOutput &&
 	       w->a.width > 1 && w->a.height > 1 && win_on_screen(w);
+}
+
+static void
+update_win_desktop_type(CompWin *w)
+{
+	if (!w || w->a.class == InputOnly) {
+		if (w)
+			w->is_desktop = 0;
+		return;
+	}
+	Atom actual_type;
+	int actual_format;
+	unsigned long nitems, bytes_after;
+	unsigned char *data = NULL;
+	int found = 0;
+	if (XGetWindowProperty(dpy, w->id, atom_wm_window_type, 0, 16, False, XA_ATOM,
+	                       &actual_type, &actual_format, &nitems, &bytes_after,
+	                       &data) == Success && data) {
+		if (actual_type == XA_ATOM && actual_format == 32) {
+			Atom *atoms = (Atom *)data;
+			for (unsigned long i = 0; i < nitems; i++) {
+				if (atoms[i] == atom_wm_window_type_desktop) {
+					found = 1;
+					break;
+				}
+			}
+		}
+		XFree(data);
+	}
+	w->is_desktop = found;
 }
 
 static int
@@ -376,6 +409,7 @@ add_win(Window id, int initial_scan)
 	w->id = id;
 	w->a = wa;
 	w->mapped = (wa.map_state == IsViewable);
+	update_win_desktop_type(w);
 	if (wa.class != InputOnly) {
 		XRenderPictFormat *fmt = XRenderFindVisualFormat(dpy, wa.visual);
 		w->argb = (fmt && fmt->type == PictTypeDirect && fmt->direct.alphaMask != 0);
@@ -675,6 +709,7 @@ handle_map(Window id)
 	if (XGetWindowAttributes(dpy, id, &wa))
 		w->a = wa;
 	w->mapped = 1;
+	update_win_desktop_type(w);
 	release_win_pixmap(w);
 	release_win_damage(w);
 
@@ -1045,6 +1080,8 @@ main(int argc, char **argv)
 		atom_dwmcomp = XInternAtom(dpy, cm_name, False);
 	}
 	atom_focus_pulse = XInternAtom(dpy, "_DWM_FOCUS_PULSE", False);
+	atom_wm_window_type = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
+	atom_wm_window_type_desktop = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DESKTOP", False);
 
 	root_fmt = XRenderFindVisualFormat(dpy, DefaultVisual(dpy, scr));
 	if (!root_fmt) {
