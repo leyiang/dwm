@@ -235,6 +235,7 @@ static FocusOverlayConfig focusoverlayconfig(void);
 static int focusoverlayenabled(void);
 static int focusoverlaytimeoutms(void);
 static int focusoverlayvisiblecount(Monitor *m);
+static int hasdwmcomp(void);
 static int isfocusoverlayfullscreenmode(Monitor *m, Client *c);
 static int shouldstartfocusoverlay(Client *oldsel, Client *c);
 static void focusmon(const Arg *arg);
@@ -400,6 +401,10 @@ static Window root, wmcheckwin;
 static Client *globalhidden = NULL;  /* Global hidden window pointer */
 static int focusoverlayshapesupported = 0;
 static FocusOverlay focusoverlay = {0};
+static Client *focuspulseremoteclient = NULL;
+static unsigned long focuspulseseq = 0;
+static Atom dwmcompatom = None;        /* X11 selection atom owned by dwmcomp */
+static Atom dwmfocuspulse = None;      /* X11 property atom for compositor focus pulse */
 
 /* Dynamic workspace variables */
 static unsigned int dynamictags = 0;   /* Bitmask for dynamic workspace tracking */
@@ -840,7 +845,7 @@ swallow(Client *p, Client *c)
 	if (!swallowfloating && c->isfloating)
 		return;
 
-	if (focusoverlay.client_ref == c)
+	if (focusoverlay.client_ref == c || focuspulseremoteclient == c)
 		hidefocusoverlay();
 	if (globalhidden == c) {
 		c->ishidden = 0;
@@ -879,7 +884,7 @@ unswallow(Client *c)
 {
 	Client *swallowed = c->swallowing;
 
-	if (focusoverlay.client_ref == swallowed)
+	if (focusoverlay.client_ref == swallowed || focuspulseremoteclient == swallowed)
 		hidefocusoverlay();
 	if (globalhidden == swallowed)
 		globalhidden = NULL;
@@ -1007,6 +1012,8 @@ void
 cleanupfocusoverlay(void)
 {
 	hidefocusoverlay();
+	if (dwmfocuspulse != None)
+		XDeleteProperty(dpy, root, dwmfocuspulse);
 	focusoverlay_cleanup_state(dpy, &focusoverlay);
 }
 
@@ -1665,6 +1672,12 @@ focusoverlayvisiblecount(Monitor *m)
 }
 
 int
+hasdwmcomp(void)
+{
+	return dwmcompatom != None && XGetSelectionOwner(dpy, dwmcompatom) != None;
+}
+
+int
 isfocusoverlayfullscreenmode(Monitor *m, Client *c)
 {
 	if ((m && m->lt[m->sellt]->arrange == monocle) || (c && c->isfullscreen))
@@ -1920,6 +1933,12 @@ hidefocusoverlay(void)
 	FocusOverlayConfig config = focusoverlayconfig();
 
 	focusoverlay_hide_state(dpy, &config, &focusoverlay);
+	if (focuspulseremoteclient) {
+		if (dwmfocuspulse != None)
+			XDeleteProperty(dpy, root, dwmfocuspulse);
+		focuspulseremoteclient = NULL;
+		XFlush(dpy);
+	}
 }
 
 void
@@ -2550,8 +2569,47 @@ startfocusoverlay(Client *c, const char *reason)
 {
 	FocusOverlayConfig config = focusoverlayconfig();
 
-	if (!c)
+	if (!c || !focusoverlay_is_enabled(&config))
 		return;
+
+	if (hasdwmcomp() && dwmfocuspulse != None) {
+		Clr border = scheme[SchemeSel][ColBorder];
+		unsigned long rgb =
+			(((unsigned long)(border.color.red >> 8) & 0xFFUL) << 16) |
+			(((unsigned long)(border.color.green >> 8) & 0xFFUL) << 8) |
+			((unsigned long)(border.color.blue >> 8) & 0xFFUL);
+		unsigned long data[11] = {
+			++focuspulseseq,
+			(unsigned long)c->win,
+			rgb,
+			(unsigned long)config.duration_ms,
+			(unsigned long)config.frame_ms,
+			(unsigned long)(config.opacity * 1000.0 + 0.5),
+			(unsigned long)(config.enable_fake_opacity ? 1 : 0),
+			(unsigned long)config.fake_opacity_pattern,
+			(unsigned long)config.fake_opacity_step,
+			(unsigned long)config.fake_opacity_lines,
+			(unsigned long)config.fake_opacity_line_height,
+		};
+
+		if (focusoverlay.active || focusoverlay.window)
+			focusoverlay_hide_state(dpy, &config, &focusoverlay);
+		focuspulseremoteclient = c;
+		XChangeProperty(dpy, root, dwmfocuspulse, XA_CARDINAL, 32,
+			PropModeReplace, (unsigned char *)data, 11);
+		fprintf(stderr,
+			"focuspulse: delegate seq=%lu reason=%s win=0x%lx name=%s geom=%ux%u+%d+%d\n",
+			focuspulseseq, reason, (unsigned long)c->win, c->name,
+			WIDTH(c), HEIGHT(c), c->x, c->y);
+		XFlush(dpy);
+		return;
+	}
+
+	if (focuspulseremoteclient) {
+		if (dwmfocuspulse != None)
+			XDeleteProperty(dpy, root, dwmfocuspulse);
+		focuspulseremoteclient = NULL;
+	}
 
 	focusoverlay_start_state(dpy, &focusoverlay, &config, c, c->win, c->name, reason,
 		c->x, c->y, WIDTH(c), HEIGHT(c));
@@ -3183,6 +3241,12 @@ setup(void)
 	dwmcurrentws = XInternAtom(dpy, "_DWM_CURRENT_WORKSPACE", False);
 	dwmactivews = XInternAtom(dpy, "_DWM_ACTIVE_WORKSPACES", False);
 	dwmscriptcmd = XInternAtom(dpy, "_DWM_SCRIPT_COMMAND", False);
+	{
+		char cmname[64];
+		snprintf(cmname, sizeof(cmname), "_DWM_COMP_S%d", screen);
+		dwmcompatom = XInternAtom(dpy, cmname, False);
+		dwmfocuspulse = XInternAtom(dpy, "_DWM_FOCUS_PULSE", False);
+	}
 	xatom[Manager] = XInternAtom(dpy, "MANAGER", False);
 	xatom[Xembed] = XInternAtom(dpy, "_XEMBED", False);
 	xatom[XembedInfo] = XInternAtom(dpy, "_XEMBED_INFO", False);
@@ -3583,7 +3647,7 @@ unmanage(Client *c, int destroyed)
 	Monitor *m = c->mon;
 	XWindowChanges wc;
 
-	if (focusoverlay.client_ref == c)
+	if (focusoverlay.client_ref == c || focuspulseremoteclient == c)
 		hidefocusoverlay();
 
 	if (c->swallowing) {
@@ -3593,7 +3657,7 @@ unmanage(Client *c, int destroyed)
 
 	Client *s = swallowingclient(c->win);
 	if (s) {
-		if (focusoverlay.client_ref == s->swallowing)
+		if (focusoverlay.client_ref == s->swallowing || focuspulseremoteclient == s->swallowing)
 			hidefocusoverlay();
 		if (globalhidden == s->swallowing)
 			globalhidden = NULL;
