@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Noto Sans CJK SC", "Segoe UI", sans-serif;
+  }
+  .card {
+    --accent: #94a3b8;
+    --accent-bg: rgba(148, 163, 184, 0.14);
+    --accent-border: rgba(255, 255, 255, 0.16);
+    --badge-fg: #111827;
+    width: 100%; height: 100%;
+    padding: 14px 18px 13px;
+    border-radius: 20px;
+    background:
+      radial-gradient(120% 100% at 10% 0%, var(--accent-bg), transparent 65%),
+      rgba(26, 28, 34, 0.84);
+    border: 1px solid var(--accent-border);
+    color: #f4f5f8;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: opacity 200ms ease;
+  }
+  html.dwmshell-occupied .card { opacity: 0.72; }
+  .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .city {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: rgba(244, 245, 248, 0.82);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .badge {
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--badge-fg);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+  }
+  .main {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .aqi-num {
+    font-size: 42px;
+    font-weight: 800;
+    line-height: 1.0;
+    letter-spacing: -0.03em;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .details {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    font-size: 11.5px;
+    color: rgba(244, 245, 248, 0.78);
+    font-variant-numeric: tabular-nums;
+  }
+  .sub-sources {
+    font-size: 11px;
+    color: rgba(244, 245, 248, 0.56);
+  }
+  .scale-wrap {
+    position: relative;
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      #22c55e 0%,
+      #facc15 24%,
+      #fb923c 44%,
+      #ef4444 64%,
+      #a855f7 84%,
+      #be123c 100%
+    );
+  }
+  .marker {
+    position: absolute;
+    top: 50%;
+    left: 0%;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2px solid #181a20;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.65);
+  }
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: rgba(244, 245, 248, 0.55);
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+  <div class="card" id="card" title="点击刷新 AQI">
+    <div class="top">
+      <span class="city" id="city">AQI</span>
+      <span class="badge" id="badge">加载中</span>
+    </div>
+    <div class="main">
+      <div class="aqi-num" id="aqi">--</div>
+      <div class="details">
+        <span id="pm">PM2.5 -- · PM10 --</span>
+        <span class="sub-sources" id="sources">--</span>
+      </div>
+    </div>
+    <div class="scale-wrap">
+      <div class="marker" id="marker"></div>
+    </div>
+    <div class="footer">
+      <span id="updated">更新 --:--</span>
+      <span id="hint">点击刷新</span>
+    </div>
+  </div>
+  <script>
+    function classifyAqi(aqi) {
+      if (aqi <= 50)  return { label: '优 · Good',      color: '#22c55e', bg: 'rgba(34, 197, 94, 0.24)',  border: 'rgba(34, 197, 94, 0.45)',  fg: '#052e16' };
+      if (aqi <= 100) return { label: '良 · Moderate',  color: '#facc15', bg: 'rgba(250, 204, 21, 0.22)', border: 'rgba(250, 204, 21, 0.45)', fg: '#271c00' };
+      if (aqi <= 150) return { label: '轻度污染',        color: '#fb923c', bg: 'rgba(251, 146, 60, 0.24)', border: 'rgba(251, 146, 60, 0.50)', fg: '#2b1200' };
+      if (aqi <= 200) return { label: '中度污染',        color: '#ef4444', bg: 'rgba(239, 68, 68, 0.26)',  border: 'rgba(239, 68, 68, 0.55)',  fg: '#ffffff' };
+      if (aqi <= 300) return { label: '重度污染',        color: '#a855f7', bg: 'rgba(168, 85, 247, 0.28)', border: 'rgba(168, 85, 247, 0.55)', fg: '#ffffff' };
+      return                 { label: '严重污染',        color: '#e11d48', bg: 'rgba(225, 29, 72, 0.30)',  border: 'rgba(225, 29, 72, 0.60)',  fg: '#ffffff' };
+    }
+
+    function formatCity(raw) {
+      if (!raw) return 'AQI';
+      const m = raw.match(/\(([^)]+)\)/);
+      return m ? `AQI · ${m[1]}` : `AQI · ${raw}`;
+    }
+
+    function formatClock(ts) {
+      if (!ts) return '--:--';
+      const m = String(ts).match(/(\d{2}:\d{2})/);
+      return m ? m[1] : String(ts);
+    }
+
+    function renderAqi(d) {
+      const card = document.getElementById('card');
+      const watch = d.watch || {};
+      const am = d.air_matters || {};
+      const aq = d.aqicn || {};
+      const rawAqi = watch.aqi ?? aq.aqi ?? am.aqi;
+      if (rawAqi === undefined || rawAqi === null) {
+        document.getElementById('badge').textContent = '无数据';
+        return;
+      }
+      const aqi = Math.round(Number(rawAqi));
+      const band = classifyAqi(aqi);
+
+      card.style.setProperty('--accent', band.color);
+      card.style.setProperty('--accent-bg', band.bg);
+      card.style.setProperty('--accent-border', band.border);
+      card.style.setProperty('--badge-fg', band.fg);
+
+      document.getElementById('city').textContent = formatCity(aq.city);
+      document.getElementById('badge').textContent = band.label;
+      document.getElementById('aqi').textContent = String(aqi);
+
+      const pm25 = am.pm25 ?? aq.pm25;
+      const pm10 = am.pm10 ?? aq.pm10;
+      document.getElementById('pm').textContent =
+        `PM2.5 ${pm25 ?? '--'} · PM10 ${pm10 ?? '--'}`;
+
+      const srcAqi = watch.source_aqi || {};
+      const parts = [];
+      if (srcAqi.air_matters !== undefined) parts.push(`AM ${srcAqi.air_matters}`);
+      if (srcAqi.aqicn !== undefined) parts.push(`AQICN ${srcAqi.aqicn}`);
+      document.getElementById('sources').textContent = parts.join(' · ') || 'single source';
+
+      const pct = Math.max(2, Math.min(98, (aqi / 300) * 100));
+      document.getElementById('marker').style.left = `${pct}%`;
+
+      const upd = watch.generated_at_beijing || aq.update_time_beijing || am.update_time_beijing;
+      document.getElementById('updated').textContent =
+        `更新 ${formatClock(upd)}${d._stale ? ' (缓存)' : ''}`;
+      document.getElementById('hint').textContent = '点击刷新';
+    }
+
+    async function fetchAqi(force) {
+      if (force) document.getElementById('hint').textContent = '刷新中...';
+      try {
+        const url = force ? '/api/aqi?refresh=1' : '/api/aqi';
+        const r = await fetch(url, { cache: 'no-store' });
+        const d = await r.json();
+        if (!r.ok || d.error) {
+          document.getElementById('badge').textContent = '获取失败';
+          document.getElementById('hint').textContent = d.error ? '配置错误' : '重试';
+          return;
+        }
+        renderAqi(d);
+      } catch (e) {
+        document.getElementById('badge').textContent = '离线';
+        document.getElementById('hint').textContent = '点击重试';
+      }
+    }
+
+    document.getElementById('card').addEventListener('click', () => fetchAqi(true));
+    fetchAqi(false);
+    setInterval(() => fetchAqi(false), 10 * 60 * 1000);
+  </script>
+</body>
+</html>

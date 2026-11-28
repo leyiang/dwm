@@ -1,0 +1,15 @@
+{
+  "title": "Todo",
+  "x": -36,
+  "y": 202,
+  "width": 290,
+  "height": 210,
+  "enabled": true,
+  "data": {
+    "items": [
+      { "id": "t1", "text": "验证 dwmcomp + dwmshell 协作", "done": false },
+      { "id": "t2", "text": "添加一个自定义 HTML 小组件", "done": false },
+      { "id": "t3", "text": "用 API 推送动态数据", "done": false }
+    ]
+  }
+}

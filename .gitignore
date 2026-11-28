@@ -10,3 +10,4 @@ dwm-qemu.log
 vm-artifacts
 dwm-qemu
 tools/dwmcomp
+.env

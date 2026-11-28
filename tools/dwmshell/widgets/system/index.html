@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Noto Sans CJK SC", "Segoe UI", sans-serif;
+  }
+  .card {
+    width: 100%; height: 100%;
+    padding: 16px 18px;
+    border-radius: 20px;
+    background: rgba(28, 30, 36, 0.80);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #f4f5f8;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: opacity 220ms ease;
+  }
+  html.dwmshell-occupied .card { opacity: 0.72; }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: rgba(244, 245, 248, 0.65);
+  }
+  .header strong {
+    color: #9be8b0;
+    letter-spacing: 0.05em;
+  }
+  .metric { display: flex; flex-direction: column; gap: 5px; }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .track {
+    width: 100%; height: 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+  }
+  .fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+  }
+  .fill.cpu { background: linear-gradient(90deg, #007cff, #47b5ff); }
+  .fill.mem { background: linear-gradient(90deg, #34c759, #86efac); }
+  .footer {
+    font-size: 11px;
+    color: rgba(244, 245, 248, 0.55);
+    display: flex;
+    justify-content: space-between;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <strong>SYSTEM</strong>
+      <span id="uptime">up --</span>
+    </div>
+    <div class="metric">
+      <div class="row"><span>CPU</span><span id="cpu-val">0%</span></div>
+      <div class="track"><div class="fill cpu" id="cpu-bar"></div></div>
+    </div>
+    <div class="metric">
+      <div class="row"><span>MEM</span><span id="mem-val">0%</span></div>
+      <div class="track"><div class="fill mem" id="mem-bar"></div></div>
+    </div>
+    <div class="footer">
+      <span id="load">load --</span>
+      <span id="mem-mb">-- MB</span>
+    </div>
+  </div>
+  <script>
+    function fmtUptime(s) {
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      return h > 0 ? `up ${h}h ${m}m` : `up ${m}m`;
+    }
+    async function refresh() {
+      const s = await window.dwmshell.getSystem();
+      if (!s || s.mem_percent === undefined) return;
+      document.getElementById('cpu-val').textContent = `${s.cpu_percent}%`;
+      document.getElementById('cpu-bar').style.width = `${s.cpu_percent}%`;
+      document.getElementById('mem-val').textContent = `${s.mem_percent}%`;
+      document.getElementById('mem-bar').style.width = `${s.mem_percent}%`;
+      document.getElementById('uptime').textContent = fmtUptime(s.uptime_sec || 0);
+      document.getElementById('load').textContent = `load ${(s.loadavg || []).join(' ')}`;
+      document.getElementById('mem-mb').textContent =
+        `${Math.round(s.mem_used_mb)} / ${Math.round(s.mem_total_mb)} MB`;
+    }
+    let timer = null;
+    function startPolling() {
+      if (timer) return;
+      refresh();
+      timer = setInterval(refresh, 5000);
+    }
+    function stopPolling() {
+      if (!timer) return;
+      clearInterval(timer);
+      timer = null;
+    }
+    refresh();
+    window.dwmshell.onOccupied((occ) => {
+      if (occ) stopPolling();
+      else startPolling();
+    });
+  </script>
+</body>
+</html>
