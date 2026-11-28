@@ -16,6 +16,11 @@
 - 查看虚机状态、`dwm` 进程、日志、工具是否安装：`./tests/vm-debug.sh status`
 - 拉取当前 `dwm` 日志：`./tests/vm-debug.sh log`
 - 自动复现 `magicgrid`/`ffplay` 路径并回传产物：`./tests/vm-debug.sh repro`
+- 录制 60fps 开窗/分屏/关窗闪烁对比视频（含 `dwmcomp` 验证）：`./tests/vm-debug.sh flash-repro <mode> <output.mp4>`
+
+关于轻量合成器 `tools/dwmcomp.c` 的开发调试、VM 60fps 自动化录屏与拆帧验收流程，详见：
+
+- `docs/dwmcomp-dev-and-recording.md`
 
 本次 bug 的远端复现脚本名为：
 
